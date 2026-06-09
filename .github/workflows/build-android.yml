@@ -1,0 +1,58 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build:shared
+
+      - name: Set production API URL
+        run: echo "NEXT_PUBLIC_API_BASE_URL=${{ secrets.API_BASE_URL || 'https://lylwithgwy.zeabur.app' }}" >> apps/web/.env.local
+
+      - name: Build web app
+        run: npm run build:web
+
+      - name: Sync Capacitor Android
+        run: |
+          cd apps/mobile
+          npx cap sync android
+
+      - name: Build Android APK
+        run: |
+          cd apps/mobile/android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: our-memories-debug.apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
