@@ -221,8 +221,9 @@ export default function EntryExperience() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spaceCode, password: nextCode, userId: "me" }),
       }).catch(() => null);
+      const data = (await res?.json().catch(() => null)) as { accessToken?: string } | null;
 
-      if (res?.ok) {
+      if (res?.ok && data?.accessToken) {
         setStep(2);
         setStatus("idle");
       } else {

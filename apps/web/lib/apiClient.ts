@@ -79,7 +79,8 @@ export async function login(spaceCode: string, password: string, userId = "me") 
     body: JSON.stringify({ spaceCode, password, userId }),
   });
   if (!response.ok) return false;
-  const session = (await response.json()) as Parameters<typeof writeSession>[0];
+  const session = (await response.json().catch(() => null)) as Parameters<typeof writeSession>[0] | null;
+  if (!session?.accessToken || !session.refreshToken) return false;
   writeSession(session);
   return true;
 }
