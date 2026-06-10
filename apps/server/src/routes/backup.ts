@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
+import { auxiliaryKinds } from "@map-of-us/shared";
 import { requireAuth } from "../auth.js";
 import { cityInfo } from "../cities.js";
 import { prisma } from "../prisma.js";
@@ -9,6 +10,23 @@ import type { AuthenticatedRequest } from "../types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const auxiliaryBackupSources = [
+  { key: "mapofus:favorites", kind: "favorite" },
+  { key: "mapofus:anniversaries", kind: "anniversary" },
+  { key: "mapofus:capsules", kind: "capsule" },
+] as const;
+
+function auxiliaryCreateData(spaceId: string, entry: Record<string, unknown>, kind: (typeof auxiliaryKinds)[number]) {
+  return {
+    spaceId,
+    kind,
+    title: typeof entry.title === "string" ? entry.title : "",
+    date: typeof entry.date === "string" ? entry.date : null,
+    note: typeof entry.note === "string" ? entry.note : "",
+    cityId: typeof entry.cityId === "string" ? entry.cityId : null,
+  };
 }
 
 export async function registerBackupRoutes(app: FastifyInstance) {
@@ -105,6 +123,28 @@ export async function registerBackupRoutes(app: FastifyInstance) {
             : [],
         ),
       );
+    }
+
+    if (isRecord(payload.auxiliary)) {
+      await prisma.auxiliaryItem.deleteMany({ where: { spaceId: auth.spaceId } });
+
+      for (const source of auxiliaryBackupSources) {
+        const entries = payload.auxiliary[source.key];
+        if (!Array.isArray(entries)) continue;
+
+        for (const entry of entries) {
+          if (!isRecord(entry) || typeof entry.title !== "string") continue;
+          const data = auxiliaryCreateData(auth.spaceId, entry, source.kind);
+          const id = typeof entry.id === "string" && entry.id.trim().length > 0 ? entry.id : undefined;
+
+          await prisma.auxiliaryItem.create({
+            data: {
+              ...(id ? { id } : {}),
+              ...data,
+            },
+          }).catch(() => prisma.auxiliaryItem.create({ data }));
+        }
+      }
     }
 
     const memories = await prisma.memory.findMany({

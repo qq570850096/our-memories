@@ -14,7 +14,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerTripGuideRoutes } from "./routes/tripGuides.js";
 import { registerWechatRoutes } from "./routes/wechat.js";
 
-const app = fastify({ logger: true });
+const app = fastify({ logger: true, bodyLimit: 12 * 1024 * 1024 });
 
 await app.register(cors, {
   origin: config.WEB_ORIGIN.split(",").map((origin) => origin.trim()),

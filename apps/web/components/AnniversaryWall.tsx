@@ -8,8 +8,8 @@ import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyIma
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Textarea } from "@/components/ui/input";
-import { readAdminMode } from "@/data/adminMode";
 import { apiJson } from "@/lib/apiClient";
+import { useContentEditAccess } from "@/lib/useContentEditAccess";
 
 const emptyForm = {
   title: "",
@@ -69,7 +69,7 @@ export default function AnniversaryWall() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [status, setStatus] = useState("");
-  const [isAdmin] = useState(() => (typeof window === "undefined" ? false : readAdminMode()));
+  const isAdmin = useContentEditAccess();
   const [working, setWorking] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -114,7 +114,11 @@ export default function AnniversaryWall() {
   };
 
   const save = async () => {
-    if (!isAdmin || working) return;
+    if (!isAdmin) {
+      setStatus("请先登录后再保存。");
+      return;
+    }
+    if (working) return;
     if (!form.title.trim() || !form.date.trim()) {
       setStatus("请填写标题和日期。");
       return;
@@ -166,7 +170,11 @@ export default function AnniversaryWall() {
   };
 
   const remove = async (card: AnniversaryCard) => {
-    if (!isAdmin || working) return;
+    if (!isAdmin) {
+      setStatus("请先登录后再删除。");
+      return;
+    }
+    if (working) return;
     const confirmed = window.confirm(`确定删除「${card.title}」吗？`);
     if (!confirmed) return;
     setWorking(true);
@@ -202,7 +210,7 @@ export default function AnniversaryWall() {
         <aside className="h-fit rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-[#5A6670]">{editingId ? "编辑纪念日" : "新增纪念日"}</p>
-            {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">管理员锁定</span>}
+            {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">登录后可编辑</span>}
           </div>
           <div className="mt-4 grid gap-3">
             <Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：第一次见面" disabled={!isAdmin} />

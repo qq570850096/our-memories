@@ -20,10 +20,10 @@ import { chinaFeatures, makePath, makeProjectionForProvince, provinceIdOf } from
 import { cityFallbackSprite, getCitiesByProvince, type City } from "@/data/cities";
 import { getLatestMemory, sortMemoriesByTime, type Memory } from "@/data/memories";
 import { getLitCityIds, memoryStoreUpdatedEvent, type LocalMemoryStore } from "@/data/progress";
-import { adminModeUpdatedEvent, readAdminMode } from "@/data/adminMode";
 import type { Province } from "@/data/provinces";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
+import { useContentEditAccess } from "@/lib/useContentEditAccess";
 
 interface ProvinceMapProps {
   province: Province;
@@ -90,26 +90,6 @@ const isDataImageUrl = (url?: string | null): url is string =>
 
 const isBrowserImageUrl = (url?: string | null): url is string =>
   typeof url === "string" && (url.startsWith("data:image/") || url.startsWith("https://"));
-
-const useAdminMode = () => {
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setIsAdmin(readAdminMode()), 0);
-    const handleAdminMode = (event: Event) => {
-      setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
-    };
-
-    window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
-
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
-    };
-  }, []);
-
-  return isAdmin;
-};
 
 const normalizeMemoryDate = (value: string) => {
   const match = value.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})$/);
@@ -352,7 +332,7 @@ const photosOfMemory = (memory?: Memory) => {
 };
 
 export default function ProvinceMap({ province, width = 1120, height = 760 }: ProvinceMapProps) {
-  const isAdmin = useAdminMode();
+  const isAdmin = useContentEditAccess();
   const frameRef = useRef<HTMLDivElement>(null);
   const nudgeTimeoutRef = useRef<BrowserTimeout | null>(null);
   const localMemoriesRef = useRef<LocalMemoryStore>({});
@@ -1209,7 +1189,7 @@ function MemoryCard({
 
   const handleDelete = async (record: Memory) => {
     if (!isAdmin) {
-      setDeleteError("请先进入管理员模式");
+      setDeleteError("请先登录后再删除");
       return;
     }
 
@@ -1243,7 +1223,7 @@ function MemoryCard({
   const handlePickFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) {
       event.target.value = "";
-      setPhotoError("请先进入管理员模式");
+      setPhotoError("请先登录后再选择照片");
       return;
     }
 
@@ -1293,7 +1273,7 @@ function MemoryCard({
 
   const handlePolishMemory = async () => {
     if (!isAdmin) {
-      setPolishError("请先进入管理员模式");
+      setPolishError("请先登录后再使用 AI 润色");
       return;
     }
     if (!trimmedText || polishing) return;
@@ -1328,7 +1308,7 @@ function MemoryCard({
     const file = event.target.files?.[0];
     if (!isAdmin) {
       if (landmarkInputRef.current) landmarkInputRef.current.value = "";
-      setLandmarkError("请先进入管理员模式");
+      setLandmarkError("请先登录后再保存地标图");
       return;
     }
     if (!file || !file.type.startsWith("image/") || landmarkSaving) return;
@@ -1354,7 +1334,7 @@ function MemoryCard({
 
   const handleDeleteLandmark = async () => {
     if (!isAdmin) {
-      setLandmarkError("请先进入管理员模式");
+      setLandmarkError("请先登录后再删除地标图");
       return;
     }
 
@@ -1376,7 +1356,7 @@ function MemoryCard({
 
   const handleSave = async () => {
     if (!isAdmin) {
-      setSaveError("请先进入管理员模式");
+      setSaveError("请先登录后再保存");
       return;
     }
     if (!canSave) return;
@@ -1442,7 +1422,7 @@ function MemoryCard({
 
   const handleSetCover = async (photo: string) => {
     if (!isAdmin) {
-      setCoverError("请先进入管理员模式");
+      setCoverError("请先登录后再设置封面");
       return;
     }
 
@@ -1493,7 +1473,7 @@ function MemoryCard({
             {memory?.date ?? "添加回忆后点亮"}
           </p>
           {!isAdmin && (
-            <p className="mt-2 text-xs font-semibold text-[#5A6670]/42">管理员锁定，无法修改回忆</p>
+            <p className="mt-2 text-xs font-semibold text-[#5A6670]/42">登录后可以修改回忆</p>
           )}
         </div>
         <div className="flex items-center gap-1">

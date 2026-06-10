@@ -48,6 +48,8 @@ import {
 } from "@/data/adminMode";
 import { LocalPrivacyImage } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
+import { readSession } from "@/lib/authStore";
+import { useContentEditAccess } from "@/lib/useContentEditAccess";
 
 type StoredItem = {
   id: string;
@@ -57,6 +59,9 @@ type StoredItem = {
   cityId?: string;
 };
 type CityAssetStore = Record<string, string>;
+type AuxiliaryPayload = {
+  items?: StoredItem[];
+};
 
 type ToolConfig = {
   active: MemoryNavKey;
@@ -116,7 +121,7 @@ const readItems = (key: string): StoredItem[] => {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]") as unknown;
 
-    return Array.isArray(parsed) ? parsed.filter((item): item is StoredItem => typeof item === "object" && item !== null && "id" in item) : [];
+    return normalizeItems(parsed);
   } catch {
     return [];
   }
@@ -124,6 +129,101 @@ const readItems = (key: string): StoredItem[] => {
 
 const writeItems = (key: string, items: StoredItem[]) => {
   window.localStorage.setItem(key, JSON.stringify(items));
+};
+
+const normalizeItems = (value: unknown): StoredItem[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const candidate = item as Partial<StoredItem>;
+    if (typeof candidate.id !== "string" || typeof candidate.title !== "string") return [];
+
+    return [{
+      id: candidate.id,
+      title: candidate.title,
+      date: typeof candidate.date === "string" ? candidate.date : undefined,
+      note: typeof candidate.note === "string" ? candidate.note : "",
+      cityId: typeof candidate.cityId === "string" ? candidate.cityId : undefined,
+    }];
+  });
+};
+
+const auxiliaryEndpoint = (kind: ToolConfig["kind"]) =>
+  kind === "favorite" ? "/favorites" : kind === "anniversary" ? "/anniversaries" : "/capsules";
+
+const auxiliaryStorageKeyByKind = {
+  favorite: "mapofus:favorites",
+  anniversary: "mapofus:anniversaries",
+  capsule: "mapofus:capsules",
+} satisfies Record<ToolConfig["kind"], (typeof auxiliaryStorageKeys)[number]>;
+
+const auxiliaryMigrationKey = (kind: ToolConfig["kind"]) => `mapofus:${kind}:migrated-to-server-v1`;
+
+const loadAuxiliaryItems = async (config: ToolConfig) => {
+  const localItems = readItems(config.storageKey);
+  const response = await apiFetch(auxiliaryEndpoint(config.kind), { cache: "no-store" }).catch(() => null);
+
+  if (!response?.ok) return localItems;
+
+  const data = (await response.json().catch(() => null)) as AuxiliaryPayload | null;
+  let serverItems = normalizeItems(data?.items ?? []);
+  const migrationKey = auxiliaryMigrationKey(config.kind);
+  const shouldMigrate = localItems.length > 0 && window.localStorage.getItem(migrationKey) !== "1";
+
+  if (shouldMigrate) {
+    const existingFingerprints = new Set(
+      serverItems.map((item) => `${item.title}|${item.date ?? ""}|${item.note}|${item.cityId ?? ""}`),
+    );
+    const localOnlyItems = localItems.filter(
+      (item) => !existingFingerprints.has(`${item.title}|${item.date ?? ""}|${item.note}|${item.cityId ?? ""}`),
+    );
+
+    await Promise.all(
+      localOnlyItems.map((item) =>
+        apiFetch("/auxiliary-items", {
+          method: "PUT",
+          body: JSON.stringify({ ...item, kind: config.kind }),
+        }).catch(() => null),
+      ),
+    );
+    window.localStorage.setItem(migrationKey, "1");
+
+    const migratedResponse = await apiFetch(auxiliaryEndpoint(config.kind), { cache: "no-store" }).catch(() => null);
+    const migratedData = (await migratedResponse?.json().catch(() => null)) as AuxiliaryPayload | null;
+    serverItems = normalizeItems(migratedData?.items ?? serverItems);
+  }
+
+  writeItems(config.storageKey, serverItems);
+  return serverItems;
+};
+
+const readAuxiliaryBackup = async () => {
+  const localBackup = Object.fromEntries(auxiliaryStorageKeys.map((key) => [key, readJsonArray(key)]));
+  const response = await apiFetch("/auxiliary-items", { cache: "no-store" }).catch(() => null);
+  if (!response?.ok) return localBackup;
+
+  const data = (await response.json().catch(() => null)) as
+    | { items?: Array<StoredItem & { kind?: ToolConfig["kind"] }> }
+    | null;
+  const grouped: Record<(typeof auxiliaryStorageKeys)[number], StoredItem[]> = {
+    "mapofus:favorites": [],
+    "mapofus:anniversaries": [],
+    "mapofus:capsules": [],
+  };
+
+  for (const item of data?.items ?? []) {
+    if (!item.kind || !(item.kind in auxiliaryStorageKeyByKind)) continue;
+    grouped[auxiliaryStorageKeyByKind[item.kind]].push({
+      id: item.id,
+      title: item.title,
+      date: item.date,
+      note: item.note,
+      cityId: item.cityId,
+    });
+  }
+
+  return grouped;
 };
 
 const useAdminMode = () => {
@@ -253,21 +353,36 @@ const daysUntil = (value?: string) => {
 
 function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   const Icon = config.icon;
-  const isAdmin = useAdminMode();
+  const canEdit = useContentEditAccess();
   const [items, setItems] = useState<StoredItem[]>([]);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   const [cityId, setCityId] = useState(cities[0]?.id ?? "");
   const [editingId, setEditingId] = useState("");
+  const [status, setStatus] = useState("");
+  const [isWorking, setIsWorking] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      setItems(readItems(config.storageKey));
+      void loadAuxiliaryItems(config)
+        .then((nextItems) => {
+          if (!cancelled) setItems(nextItems);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setItems(readItems(config.storageKey));
+            setStatus("读取在线内容失败，已显示本地缓存。");
+          }
+        });
     }, 0);
 
-    return () => window.clearTimeout(timer);
-  }, [config.storageKey]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [config]);
 
   const cityOptions = useMemo(() => cities.slice().sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN")), []);
   const canSave = title.trim().length > 0;
@@ -279,8 +394,11 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
     setEditingId("");
   };
 
-  const save = () => {
-    if (!isAdmin) return;
+  const save = async () => {
+    if (!canEdit) {
+      setStatus("请先登录后再保存。");
+      return;
+    }
     if (!canSave) return;
 
     const item = {
@@ -294,13 +412,31 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
       ? items.map((current) => (current.id === editingId ? item : current))
       : [item, ...items];
 
-    setItems(nextItems);
-    writeItems(config.storageKey, nextItems);
-    resetForm();
+    setIsWorking(true);
+    setStatus("");
+
+    try {
+      const response = await apiFetch("/auxiliary-items", {
+        method: "PUT",
+        body: JSON.stringify({ ...item, kind: config.kind }),
+      });
+      if (!response.ok) throw new Error("Save failed");
+
+      setItems(nextItems);
+      writeItems(config.storageKey, nextItems);
+      resetForm();
+      const refreshedItems = await loadAuxiliaryItems(config);
+      setItems(refreshedItems);
+      setStatus(editingId ? "已保存修改。" : "已保存。");
+    } catch {
+      setStatus("保存失败，请确认网络和登录状态后重试。");
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   const startEdit = (item: StoredItem) => {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     setEditingId(item.id);
     setTitle(item.title);
     setDate(item.date ?? "");
@@ -308,12 +444,28 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
     if (item.cityId) setCityId(item.cityId);
   };
 
-  const remove = (id: string) => {
-    if (!isAdmin) return;
-    const nextItems = items.filter((item) => item.id !== id);
-    setItems(nextItems);
-    writeItems(config.storageKey, nextItems);
-    if (editingId === id) resetForm();
+  const remove = async (id: string) => {
+    if (!canEdit) {
+      setStatus("请先登录后再删除。");
+      return;
+    }
+    setIsWorking(true);
+    setStatus("");
+
+    try {
+      const response = await apiFetch(`/auxiliary-items/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed");
+
+      const nextItems = items.filter((item) => item.id !== id);
+      setItems(nextItems);
+      writeItems(config.storageKey, nextItems);
+      if (editingId === id) resetForm();
+      setStatus("已删除。");
+    } catch {
+      setStatus("删除失败，请稍后再试。");
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   return (
@@ -335,21 +487,21 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
         <div className="h-fit rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-[#5A6670]">{editingId ? "编辑" : "新增"}</p>
-            {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">管理员锁定</span>}
+            {!canEdit && <span className="text-xs font-semibold text-[#5A6670]/42">登录后可编辑</span>}
           </div>
           <input
             className="mt-4 w-full rounded-[7px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm outline-none transition focus:border-[#E8B8C2]"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={config.kind === "favorite" ? "想去的地方" : "标题"}
-            disabled={!isAdmin}
+            disabled={!canEdit || isWorking}
           />
           {config.kind === "favorite" && (
             <select
               className="mt-3 w-full rounded-[7px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm outline-none transition focus:border-[#E8B8C2]"
               value={cityId}
               onChange={(event) => setCityId(event.target.value)}
-              disabled={!isAdmin}
+              disabled={!canEdit || isWorking}
             >
               {cityOptions.map((city) => (
                 <option key={city.id} value={city.id}>
@@ -365,7 +517,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
               onChange={(event) => setDate(event.target.value)}
               placeholder="2026.05.20"
               maxLength={10}
-              disabled={!isAdmin}
+              disabled={!canEdit || isWorking}
             />
           )}
           <textarea
@@ -374,16 +526,16 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="写一点备注……"
-            disabled={!isAdmin}
+            disabled={!canEdit || isWorking}
           />
           <button
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-[7px] bg-[#F5DCE0] px-4 py-2.5 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7] disabled:opacity-45"
             type="button"
-            onClick={save}
-            disabled={!isAdmin || !canSave}
+            onClick={() => void save()}
+            disabled={!canEdit || !canSave || isWorking}
           >
             <Plus className="h-4 w-4" />
-            {editingId ? "保存修改" : "保存"}
+            {isWorking ? "保存中" : editingId ? "保存修改" : "保存"}
           </button>
           {editingId && (
             <button
@@ -418,16 +570,16 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
                       type="button"
                       onClick={() => startEdit(item)}
                       aria-label="编辑"
-                      disabled={!isAdmin}
+                      disabled={!canEdit || isWorking}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
                     <button
                       className="grid h-8 w-8 place-items-center rounded-[6px] text-[#5A6670]/42 transition hover:bg-[#F5DCE0]/45 hover:text-[#E8B8C2]"
                       type="button"
-                      onClick={() => remove(item.id)}
+                      onClick={() => void remove(item.id)}
                       aria-label="删除"
-                      disabled={!isAdmin}
+                      disabled={!canEdit || isWorking}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -449,6 +601,11 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
           )}
         </div>
       </section>
+      {status && (
+        <p className="mt-5 rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/72 px-4 py-3 text-sm text-[#5A6670]/66">
+          {status}
+        </p>
+      )}
     </MemoryPageShell>
   );
 }
@@ -711,7 +868,7 @@ export function SettingsPage() {
       exportedAt: new Date().toISOString(),
       memories,
       cityAssets: assetData?.assets ?? {},
-      auxiliary: Object.fromEntries(auxiliaryStorageKeys.map((key) => [key, readJsonArray(key)])),
+      auxiliary: await readAuxiliaryBackup(),
       settings: {
         ...readAppSettings(),
         loginPhotos: await readLoginPhotos(),
@@ -792,10 +949,17 @@ export function SettingsPage() {
   };
 
   const unlockAdmin = async () => {
+    const session = readSession();
+    const username = session?.user?.username;
+    if (!username) {
+      setAdminError("未找到当前用户信息");
+      return;
+    }
+
     const response = await apiFetch("/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "admin", password: adminCode }),
+      auth: false,
+      body: JSON.stringify({ username, password: adminCode }),
     }).catch(() => null);
 
     if (response?.ok) {
@@ -1008,7 +1172,7 @@ export function SettingsPage() {
               />
             </label>
             <label className="grid gap-1">
-              <span className="text-xs font-semibold text-[#5A6670]/48">纪念日开始日期（如 2025.12.23）</span>
+              <span className="text-xs font-semibold text-[#5A6670]/48">纪念日开始日期（如 2026.03.20 或 2026年3月20日）</span>
               <input
                 className="min-h-10 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white"
                 value={anniversaryDate}

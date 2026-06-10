@@ -7,6 +7,17 @@ import type { AuthenticatedRequest } from "../types.js";
 
 const settingKey = "app";
 
+const serializeAuxiliaryItem = (item: AuxiliaryItem) => ({
+  id: item.id,
+  kind: item.kind,
+  title: item.title,
+  date: item.date ?? undefined,
+  note: item.note,
+  cityId: item.cityId ?? undefined,
+  createdAt: item.createdAt.toISOString(),
+  updatedAt: item.updatedAt.toISOString(),
+});
+
 export async function registerSettingsRoutes(app: FastifyInstance) {
   app.get("/settings", { preHandler: requireAuth }, async (request) => {
     const auth = (request as AuthenticatedRequest).auth;
@@ -41,16 +52,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
         orderBy: { createdAt: "desc" },
       });
       return {
-        items: items.map((item: AuxiliaryItem) => ({
-          id: item.id,
-          kind: item.kind,
-          title: item.title,
-          date: item.date ?? undefined,
-          note: item.note,
-          cityId: item.cityId ?? undefined,
-          createdAt: item.createdAt.toISOString(),
-          updatedAt: item.updatedAt.toISOString(),
-        })),
+        items: items.map(serializeAuxiliaryItem),
       };
     });
   }
@@ -61,7 +63,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       where: { spaceId: auth.spaceId },
       orderBy: { createdAt: "desc" },
     });
-    return { items };
+    return { items: items.map(serializeAuxiliaryItem) };
   });
 
   app.put("/auxiliary-items", { preHandler: requireAuth }, async (request, reply) => {
@@ -84,36 +86,39 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "Invalid auxiliary item payload" });
     }
 
-    const item = await prisma.auxiliaryItem.upsert({
-      where: { id: typeof payload.id === "string" ? payload.id : "__new__" },
-      create: {
-        spaceId: auth.spaceId,
-        kind: payload.kind as never,
-        title: payload.title,
-        date: typeof payload.date === "string" ? payload.date : null,
-        note: typeof payload.note === "string" ? payload.note : "",
-        cityId: typeof payload.cityId === "string" ? payload.cityId : null,
-      },
-      update: {
-        title: payload.title,
-        date: typeof payload.date === "string" ? payload.date : null,
-        note: typeof payload.note === "string" ? payload.note : "",
-        cityId: typeof payload.cityId === "string" ? payload.cityId : null,
-      },
-    }).catch(async () =>
-      prisma.auxiliaryItem.create({
-        data: {
-          spaceId: auth.spaceId,
-          kind: payload.kind as never,
-          title: payload.title as string,
-          date: typeof payload.date === "string" ? payload.date : null,
-          note: typeof payload.note === "string" ? payload.note : "",
-          cityId: typeof payload.cityId === "string" ? payload.cityId : null,
-        },
-      }),
-    );
+    const id = typeof payload.id === "string" && payload.id.trim().length > 0 ? payload.id : undefined;
+    const data = {
+      kind: payload.kind as never,
+      title: payload.title,
+      date: typeof payload.date === "string" ? payload.date : null,
+      note: typeof payload.note === "string" ? payload.note : "",
+      cityId: typeof payload.cityId === "string" ? payload.cityId : null,
+    };
+    const existing = id
+      ? await prisma.auxiliaryItem.findFirst({ where: { id, spaceId: auth.spaceId } })
+      : null;
 
-    return { item };
+    const item = existing
+      ? await prisma.auxiliaryItem.update({
+          where: { id: existing.id },
+          data,
+        })
+      : await prisma.auxiliaryItem.create({
+          data: {
+            ...(id ? { id } : {}),
+            spaceId: auth.spaceId,
+            ...data,
+          },
+        }).catch(() =>
+          prisma.auxiliaryItem.create({
+            data: {
+              spaceId: auth.spaceId,
+              ...data,
+            },
+          }),
+        );
+
+    return { item: serializeAuxiliaryItem(item) };
   });
 
   app.delete("/auxiliary-items/:id", { preHandler: requireAuth }, async (request, reply) => {

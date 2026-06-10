@@ -18,13 +18,13 @@ export type LoginPhotoText = {
   label?: string;
 };
 
-export const defaultAnniversaryDate = "2025.01.01";
+export const defaultAnniversaryDate = "2026.03.20";
 export const defaultAnniversaryLabel = "我们在一起";
 export const defaultWeatherCityIds = ["beijing", "shanghai", "guangzhou"];
 export const maxWeatherCities = 3;
 export const defaultCoupleLogo = "/logo/couple-logo-placeholder.svg";
 
-const datePattern = /^\d{4}\.\d{1,2}\.\d{1,2}$/;
+const datePattern = /^(\d{4})\s*(?:[./-]|年)\s*(\d{1,2})\s*(?:[./-]|月)\s*(\d{1,2})\s*日?$/;
 
 const isValidLogo = (value: unknown): value is string =>
   typeof value === "string" && (value.startsWith("data:image/") || value.startsWith("/") || value.startsWith("https://"));
@@ -34,6 +34,26 @@ const cleanString = (value: unknown, maxLength: number): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.slice(0, maxLength);
+};
+
+export const normalizeAnniversaryDate = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const match = datePattern.exec(value.trim());
+  if (!match) return undefined;
+
+  const [, rawYear, rawMonth, rawDay] = match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const valid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  if (!valid) return undefined;
+
+  return `${rawYear}.${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")}`;
 };
 
 export const normalizeAppSettings = (value: unknown): AppSettings => {
@@ -62,7 +82,7 @@ export const normalizeAppSettings = (value: unknown): AppSettings => {
           }),
         )
       : undefined;
-  const anniversaryDate = cleanString(settings.anniversaryDate, 12);
+  const anniversaryDate = normalizeAnniversaryDate(settings.anniversaryDate);
   const weatherCityIds = Array.isArray(settings.weatherCityIds)
     ? settings.weatherCityIds.filter((id): id is string => typeof id === "string" && id.length > 0).slice(0, maxWeatherCities)
     : undefined;
@@ -70,7 +90,7 @@ export const normalizeAppSettings = (value: unknown): AppSettings => {
   return {
     loginPhotos,
     loginPhotoTexts,
-    anniversaryDate: anniversaryDate && datePattern.test(anniversaryDate) ? anniversaryDate : undefined,
+    anniversaryDate,
     anniversaryLabel: cleanString(settings.anniversaryLabel, 40),
     weatherCityIds: weatherCityIds && weatherCityIds.length > 0 ? weatherCityIds : undefined,
     coupleLogo: isValidLogo(settings.coupleLogo) ? settings.coupleLogo : undefined,

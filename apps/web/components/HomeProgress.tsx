@@ -18,6 +18,7 @@ import {
   defaultAnniversaryLabel,
   defaultCoupleLogo,
   defaultWeatherCityIds,
+  normalizeAnniversaryDate,
   readAppSettings,
   syncAppSettings,
   type AppSettings,
@@ -82,9 +83,10 @@ type OpenMeteoCurrent = {
 };
 
 const daysTogether = (date?: string) => {
-  if (!date || !/^\d{4}\.\d{2}\.\d{2}$/.test(date)) return null;
+  const normalizedDate = normalizeAnniversaryDate(date);
+  if (!normalizedDate) return null;
 
-  const [year, month, day] = date.split(".").map(Number);
+  const [year, month, day] = normalizedDate.split(".").map(Number);
   const start = new Date(year, month - 1, day);
   const today = new Date();
 
@@ -111,6 +113,15 @@ const formatWeekday = (value: Date) =>
   new Intl.DateTimeFormat("zh-CN", {
     weekday: "long",
   }).format(value);
+
+function useTogetherDays() {
+  const settings = useAppSettings();
+  const startDate = normalizeAnniversaryDate(settings.anniversaryDate) ?? defaultAnniversaryDate;
+  const label = settings.anniversaryLabel ?? defaultAnniversaryLabel;
+  const days = daysTogether(startDate) ?? 0;
+
+  return { days, label, startDate };
+}
 
 function getWeatherKind(code: number, windSpeed: number, isDay: boolean): { kind: WeatherKind; label: string } {
   if (windSpeed >= 38) return { kind: "wind", label: "大风" };
@@ -393,10 +404,7 @@ function DateTimeCard() {
 }
 
 function TogetherDaysCard() {
-  const settings = useAppSettings();
-  const startDate = settings.anniversaryDate ?? defaultAnniversaryDate;
-  const label = settings.anniversaryLabel ?? defaultAnniversaryLabel;
-  const days = daysTogether(startDate);
+  const { days, label, startDate } = useTogetherDays();
 
   return (
     <div className="mt-3 rounded-[8px] border border-[#D8DDD8]/70 bg-[#FAFBF7]/62 px-4 py-3 text-[#5A6670] shadow-[0_10px_24px_rgba(90,102,112,0.05)]">
@@ -411,6 +419,25 @@ function TogetherDaysCard() {
         </div>
       </div>
       <p className="mt-1 truncate text-xs text-[#5A6670]/45">从 {startDate} 开始</p>
+    </div>
+  );
+}
+
+export function TogetherDaysBadge({ compact = false }: Readonly<{ compact?: boolean }> = {}) {
+  const { days, label } = useTogetherDays();
+
+  return (
+    <div
+      className={`flex w-fit max-w-full items-center gap-1.5 rounded-full border border-[#D8DDD8]/80 bg-[#FAFBF7]/78 text-[#5A6670]/78 shadow-[0_8px_22px_rgba(90,102,112,0.08)] backdrop-blur ${
+        compact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"
+      }`}
+    >
+      <CalendarDays className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} shrink-0 text-[#A8C8DC]`} />
+      <span className="min-w-0 truncate">
+        {compact ? "在一起" : label}
+        <strong className="mx-1 font-semibold text-[#E8B8C2]">{days}</strong>
+        天
+      </span>
     </div>
   );
 }

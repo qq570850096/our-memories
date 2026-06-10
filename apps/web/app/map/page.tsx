@@ -1,8 +1,19 @@
 import Image from "next/image";
-import { ChevronUp } from "lucide-react";
+import Link from "next/link";
+import {
+  Archive,
+  BookOpen,
+  CalendarDays,
+  ChevronUp,
+  Heart,
+  Map as MapIcon,
+  MoreHorizontal,
+  Route,
+  Settings,
+} from "lucide-react";
 import ChinaMap, { SouthChinaSeaInset } from "@/components/ChinaMap";
 import BackToLoginButton from "@/components/BackToLoginButton";
-import { LegendProgress, ProgressBadge, StatsPanel } from "@/components/HomeProgress";
+import { LegendProgress, ProgressBadge, StatsPanel, TogetherDaysBadge } from "@/components/HomeProgress";
 import RandomPhotoCard from "@/components/RandomPhotoCard";
 
 function BrandMark() {
@@ -90,7 +101,7 @@ function Legend({ compact = false }: Readonly<{ compact?: boolean }>) {
 
 function MobileMapDock() {
   return (
-    <details className="group absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] z-40 overflow-hidden rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/90 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl lg:hidden">
+    <details className="group fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.6rem)] z-40 overflow-hidden rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/90 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl lg:hidden">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 pl-14 sm:pl-3 [&::-webkit-details-marker]:hidden">
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold text-[#5A6670]">地图信息</span>
@@ -109,6 +120,67 @@ function MobileMapDock() {
         </div>
       </div>
     </details>
+  );
+}
+
+function MobilePrimaryNav() {
+  const items = [
+    { label: "地图", icon: MapIcon, href: "/map", active: true },
+    { label: "回忆", icon: BookOpen, href: "/memories", active: false },
+    { label: "攻略", icon: Route, href: "/trips", active: false },
+    { label: "纪念日", icon: CalendarDays, href: "/anniversaries", active: false },
+  ];
+  const moreItems = [
+    { label: "收藏", icon: Heart, href: "/favorites" },
+    { label: "宝盒", icon: Archive, href: "/time-capsule", active: false },
+    { label: "设置", icon: Settings, href: "/settings", active: false },
+  ];
+
+  return (
+    <nav className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.65rem)] z-40 grid grid-cols-5 gap-1 rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/92 p-2 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl lg:hidden">
+      {items.map((item) => {
+        const Icon = item.icon;
+
+        return (
+          <Link
+            key={item.href}
+            className={`grid min-h-14 place-items-center rounded-[8px] px-1 py-1.5 text-[11px] font-semibold leading-none transition ${
+              item.active
+                ? "bg-[#F5DCE0] text-[#B85D70]"
+                : "text-[#5A6670]/58 hover:bg-white/58 hover:text-[#5A6670]"
+            }`}
+            href={item.href}
+            aria-label={item.label}
+          >
+            <Icon className="h-5 w-5" />
+            <span className="mt-1 block max-w-full truncate">{item.label}</span>
+          </Link>
+        );
+      })}
+      <details className="group">
+        <summary className="grid min-h-14 cursor-pointer list-none place-items-center rounded-[8px] px-1 py-1.5 text-[11px] font-semibold leading-none text-[#5A6670]/58 transition hover:bg-white/58 hover:text-[#5A6670] [&::-webkit-details-marker]:hidden">
+          <MoreHorizontal className="h-5 w-5" />
+          <span className="mt-1 block max-w-full truncate">更多</span>
+        </summary>
+        <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.65rem)] grid grid-cols-3 gap-2 rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/94 p-2 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl">
+          {moreItems.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.href}
+                className="grid min-h-12 place-items-center rounded-[8px] px-2 py-2 text-xs font-semibold text-[#5A6670]/64 transition hover:bg-white/60 hover:text-[#5A6670]"
+                href={item.href}
+                aria-label={item.label}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="mt-1 block max-w-full truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </details>
+    </nav>
   );
 }
 
@@ -136,6 +208,9 @@ export default function MapPage() {
                 <h1 className="truncate text-xl font-semibold leading-tight tracking-normal text-[#5A6670] sm:text-[28px]">
                   我们的回忆
                 </h1>
+                <div className="mt-1 sm:hidden">
+                  <TogetherDaysBadge compact />
+                </div>
                 <p className="mt-0.5 hidden text-sm font-medium text-[#5A6670]/62 sm:mt-1 sm:block sm:text-base">
                   我们的地图
                 </p>
@@ -145,7 +220,7 @@ export default function MapPage() {
             <BackToLoginButton />
           </header>
 
-          <div className="flex min-h-0 flex-1 items-center justify-center pb-14 pt-0 sm:pb-20 lg:pb-6">
+          <div className="flex min-h-0 flex-1 items-center justify-center pb-[10.5rem] pt-0 sm:pb-20 lg:pb-6">
             <ChinaMap
               className="mobile-map-shell -translate-y-8 sm:translate-y-0"
               width={1100}
@@ -160,6 +235,7 @@ export default function MapPage() {
             <Legend />
           </div>
           <MobileMapDock />
+          <MobilePrimaryNav />
         </section>
         <StatsPanel>{null}</StatsPanel>
       </div>
