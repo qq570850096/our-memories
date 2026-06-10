@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"our-memories-backend/config"
 )
@@ -11,14 +13,20 @@ func CORSMiddleware() gin.HandlerFunc {
 		allowed := false
 
 		for _, allowedOrigin := range config.Get().AllowedOrigins {
-			if origin == allowedOrigin {
+			allowedOrigin = strings.TrimSpace(allowedOrigin)
+			if allowedOrigin == "*" || origin == allowedOrigin {
 				allowed = true
 				break
 			}
 		}
 
+		if origin == "capacitor://localhost" || origin == "ionic://localhost" || origin == "https://localhost" {
+			allowed = true
+		}
+
 		if allowed {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
