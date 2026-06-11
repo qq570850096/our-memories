@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"our-memories-backend/cache"
 	"our-memories-backend/db"
 	"our-memories-backend/models"
 	"our-memories-backend/utils"
@@ -13,13 +16,26 @@ func GetMemories(c *gin.Context) {
 	spaceID := c.GetString("spaceID")
 	userID := c.GetString("userID")
 
+	// 尝试从缓存获取
+	cacheKey := fmt.Sprintf("memories:%s:%s", spaceID, userID)
+	if cached, found := cache.Get(cacheKey); found {
+		utils.Success(c, gin.H{"memories": cached})
+		return
+	}
+
 	memories, err := loadMemoryStore(spaceID, userID)
 	if err != nil {
 		utils.Error(c, 500, "Failed to fetch memories")
 		return
 	}
 
+	// 缓存30秒
+	cache.Set(cacheKey, memories, 30*time.Second)
 	utils.Success(c, gin.H{"memories": memories})
+}
+
+func clearMemoriesCache(spaceID string) {
+	cache.Clear() // 简单起见，清空所有缓存
 }
 
 func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) {
@@ -152,6 +168,7 @@ func CreateMemory(c *gin.Context) {
 			photoID, memoryID, photo.Key, photo.URL, photo.MimeType, photo.Width, photo.Height, i)
 	}
 
+	clearMemoriesCache(spaceID)
 	memories, err := loadMemoryStore(spaceID, userID)
 	if err != nil {
 		utils.Error(c, 500, "Failed to fetch memories")
@@ -223,6 +240,7 @@ func UpdateMemory(c *gin.Context) {
 		}
 	}
 
+	clearMemoriesCache(spaceID)
 	memories, err := loadMemoryStore(spaceID, c.GetString("userID"))
 	if err != nil {
 		utils.Error(c, 500, "Failed to fetch memories")
@@ -242,6 +260,7 @@ func DeleteMemory(c *gin.Context) {
 		return
 	}
 
+	clearMemoriesCache(spaceID)
 	memories, err := loadMemoryStore(spaceID, c.GetString("userID"))
 	if err != nil {
 		utils.Error(c, 500, "Failed to fetch memories")
