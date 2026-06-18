@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { ImagePlus, Loader2, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
 import type { City } from "@/data/cities";
 import { getLatestMemory, sortMemoriesByTime, type Memory } from "@/data/memories";
@@ -209,11 +210,16 @@ export function MemoryCitySheet({
   const [activeTab, setActiveTab] = useState<MemoryPanelTab>("memory");
   const [isReadingPhoto, setIsReadingPhoto] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [annotatingMemoryId, setAnnotatingMemoryId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const photoDraftsRef = useRef<PhotoDraft[]>([]);
   const photoReadTokenRef = useRef(0);
   const mountedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const landmarkInputRef = useRef<HTMLInputElement>(null);
+  const noteEditorRef = useRef<HTMLDivElement>(null);
 
   const editingAccess = computeMemoryEditAccess(editingMemory);
   const isCreating = editingMemory == null;
@@ -239,6 +245,24 @@ export function MemoryCitySheet({
   const showMemory = activeTab === "memory";
   const showGallery = activeTab === "gallery";
   const showHistory = activeTab === "history";
+  const annotatingMemory = annotatingMemoryId
+    ? memories.find((item) => item.id === annotatingMemoryId)
+    : undefined;
+  const noteOriginal = annotatingMemory?.partnerNote?.trim() ?? "";
+  const noteText = noteDraft.trim();
+  const canSaveNote = Boolean(
+    annotatingMemory &&
+      !noteSaving &&
+      noteText !== noteOriginal &&
+      (noteText.length > 0 || noteOriginal.length > 0),
+  );
+
+  const resetAnnotation = useCallback(() => {
+    setAnnotatingMemoryId(null);
+    setNoteDraft("");
+    setNoteError("");
+    setNoteSaving(false);
+  }, []);
 
   const resetForm = useCallback(
     (revokePhoto: boolean) => {
@@ -301,31 +325,45 @@ export function MemoryCitySheet({
     const timer = window.setTimeout(() => {
       if (!open) {
         resetForm(true);
+        resetAnnotation();
         setFormOpen(false);
         setActiveTab("memory");
         return;
       }
 
       resetForm(true);
+      resetAnnotation();
       setActiveTab("memory");
       setFormOpen(defaultMode === "create" && isAdmin);
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [city.id, defaultMode, isAdmin, open, resetForm, selectedMemoryId]);
+  }, [city.id, defaultMode, isAdmin, open, resetAnnotation, resetForm, selectedMemoryId]);
+
+  useEffect(() => {
+    if (!annotatingMemoryId) return;
+    const timer = window.setTimeout(() => {
+      noteEditorRef.current?.scrollIntoView({ block: "nearest" });
+    }, 40);
+
+    return () => window.clearTimeout(timer);
+  }, [annotatingMemoryId]);
 
   const startCreate = () => {
     if (!isAdmin) return;
     resetForm(true);
+    resetAnnotation();
     setActiveTab("memory");
     setFormOpen(true);
   };
 
   const startEdit = (record: Memory) => {
-    if (!isAdmin || !localMemoryIds.has(record.id)) return;
+    const recordAccess = computeMemoryEditAccess(record);
+    if (!isAdmin || !localMemoryIds.has(record.id) || !recordAccess.canEdit) return;
 
     photoReadTokenRef.current += 1;
     revokePhotoDrafts(photoDraftsRef.current);
+    resetAnnotation();
     photoDraftsRef.current = [];
     setPhotoDrafts([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -349,6 +387,20 @@ export function MemoryCitySheet({
     setActiveTab("memory");
   };
 
+  const startAnnotate = (record: Memory) => {
+    const recordAccess = computeMemoryEditAccess(record);
+    if (!isAdmin || !localMemoryIds.has(record.id) || !recordAccess.canAddNote || recordAccess.canEdit) {
+      setNoteError("只有另一位成员可以给这条回忆加批注");
+      return;
+    }
+
+    resetForm(true);
+    setFormOpen(false);
+    setAnnotatingMemoryId(record.id);
+    setNoteDraft(record.partnerNote ?? "");
+    setNoteError("");
+  };
+
   const handleDelete = async (record: Memory) => {
     const recordAccess = computeMemoryEditAccess(record);
     if (!isAdmin || !localMemoryIds.has(record.id) || !recordAccess.canEdit) {
@@ -369,10 +421,34 @@ export function MemoryCitySheet({
         resetForm(true);
         setFormOpen(false);
       }
+      if (annotatingMemoryId === record.id) resetAnnotation();
     } catch {
       setDeleteError("删除失败，请稍后再试");
     } finally {
       if (mountedRef.current) setDeletingMemoryId("");
+    }
+  };
+
+  const handleSaveNote = async (record: Memory) => {
+    const recordAccess = computeMemoryEditAccess(record);
+    if (!isAdmin || !localMemoryIds.has(record.id) || !recordAccess.canAddNote || recordAccess.canEdit) {
+      setNoteError("只有另一位成员可以给这条回忆加批注");
+      return;
+    }
+    if (!canSaveNote) return;
+
+    setNoteSaving(true);
+    setNoteError("");
+
+    try {
+      await onUpdate(city.id, record.id, { partnerNote: noteText || undefined });
+      if (mountedRef.current) {
+        flushSync(() => resetAnnotation());
+      }
+    } catch {
+      setNoteError("批注保存失败，请稍后再试");
+    } finally {
+      if (mountedRef.current) setNoteSaving(false);
     }
   };
 
@@ -610,6 +686,51 @@ export function MemoryCitySheet({
     }
   };
 
+  const renderNoteEditor = (record: Memory) => (
+    <div
+      ref={noteEditorRef}
+      className="rounded-[8px] border border-[#F5DCE0]/78 bg-[#F5DCE0]/22 p-3 shadow-[0_8px_20px_rgba(232,184,194,0.08)]"
+    >
+      <label className="block">
+        <span className="flex items-center justify-between gap-3 text-xs font-semibold text-[#B85D70]">
+          给对方的批注
+          <span className="font-normal text-[#5A6670]/45">{noteDraft.length}/500</span>
+        </span>
+        <textarea
+          className="mt-2 w-full resize-none rounded-[7px] border border-[#F5DCE0] bg-[#FAFBF7] px-3 py-2.5 text-sm leading-6 text-[#5A6670] placeholder:text-[#5A6670]/40 outline-none transition focus:border-[#E8B8C2]"
+          rows={3}
+          value={noteDraft}
+          onChange={(event) => {
+            setNoteDraft(event.target.value);
+            setNoteError("");
+          }}
+          placeholder="留给另一个人的一句补充..."
+          maxLength={500}
+        />
+      </label>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-[7px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:cursor-not-allowed disabled:opacity-45"
+          type="button"
+          onClick={() => handleSaveNote(record)}
+          disabled={!canSaveNote}
+        >
+          {noteSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+          {noteSaving ? "保存中" : record.partnerNote ? "保存修改" : "保存批注"}
+        </button>
+        <button
+          className="min-h-10 rounded-[7px] border border-[#D8DDD8] px-4 text-sm font-semibold text-[#5A6670]/62 transition hover:border-[#A8C8DC] hover:text-[#A8C8DC]"
+          type="button"
+          onClick={resetAnnotation}
+          disabled={noteSaving}
+        >
+          取消
+        </button>
+      </div>
+      {noteError && <p className="mt-2 text-xs font-semibold text-[#D86F82]">{noteError}</p>}
+    </div>
+  );
+
   const footer = formOpen ? (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -689,7 +810,10 @@ export function MemoryCitySheet({
                   activeTab === tab ? "bg-[#F5DCE0] text-[#E8B8C2]" : "hover:bg-[#D6E8F0]/30"
                 }`}
                 type="button"
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  resetAnnotation();
+                  setActiveTab(tab);
+                }}
               >
                 {label}
               </button>
@@ -821,7 +945,7 @@ export function MemoryCitySheet({
                   <button
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-[7px] border border-[#F5DCE0] px-3 py-2.5 text-xs font-semibold text-[#E8B8C2] transition hover:bg-[#F5DCE0]/55"
                     type="button"
-                    onClick={() => startEdit(memory)}
+                    onClick={() => startAnnotate(memory)}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                     加批注
@@ -841,6 +965,8 @@ export function MemoryCitySheet({
               </div>
             )}
             {deleteError && <p className="text-xs text-[#E8B8C2]">{deleteError}</p>}
+            {memory && annotatingMemoryId === memory.id && renderNoteEditor(memory)}
+            {noteError && !annotatingMemoryId && <p className="text-xs text-[#E8B8C2]">{noteError}</p>}
 
             <button
               className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-[#D8DDD8] px-3 py-3 text-sm font-semibold text-[#5A6670]/68 transition hover:border-[#A8C8DC] hover:text-[#A8C8DC] disabled:cursor-not-allowed disabled:opacity-45"
@@ -904,8 +1030,15 @@ export function MemoryCitySheet({
                               <button
                                 className="grid h-7 w-7 place-items-center rounded-[5px] text-[#5A6670]/50 transition hover:bg-[#D6E8F0]/34 hover:text-[#A8C8DC]"
                                 type="button"
-                                onClick={() => startEdit(record)}
-                                aria-label={`编辑 ${record.city} ${record.date} 回忆`}
+                                onClick={() => {
+                                  if (canEditRecord) startEdit(record);
+                                  else startAnnotate(record);
+                                }}
+                                aria-label={
+                                  canEditRecord
+                                    ? `编辑 ${record.city} ${record.date} 回忆`
+                                    : `给 ${record.city} ${record.date} 回忆加批注`
+                                }
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
@@ -958,6 +1091,15 @@ export function MemoryCitySheet({
                         ))}
                       </div>
                     )}
+                    {record.partnerNote && (
+                      <div className="mt-3 rounded-[7px] border border-[#F5DCE0]/70 bg-[#F5DCE0]/24 px-3 py-2">
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#E8B8C2]/80">
+                          对方的批注
+                        </p>
+                        <p className="text-xs leading-5 text-[#5A6670]/70">{record.partnerNote}</p>
+                      </div>
+                    )}
+                    {annotatingMemoryId === record.id && <div className="mt-3">{renderNoteEditor(record)}</div>}
                   </article>
                 );
               })
