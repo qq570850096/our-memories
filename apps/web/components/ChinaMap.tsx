@@ -21,6 +21,10 @@ import {
 import { buildMemoryRoutePoints, curvedRoutePath } from "@/lib/memoryRoutes";
 import { provinces } from "@/data/provinces";
 import { apiFetch } from "@/lib/apiClient";
+import Image from "next/image";
+import { cities } from "@/data/cities";
+import { memoryTime, type Memory } from "@/data/memories";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 interface ChinaMapProps {
   width?: number;
@@ -38,6 +42,7 @@ const colors = {
 };
 
 const provinceById = new Map(provinces.map((province) => [province.id, province]));
+const cityById = new Map(cities.map((city) => [city.id, city]));
 const easyTapProvinceIds = new Set(["hongkong", "macau"]);
 const maxZoom = 1.45;
 const minZoom = 1;
@@ -94,8 +99,11 @@ export function SouthChinaSeaInset({ compact = false }: Readonly<{ compact?: boo
 
 export default function ChinaMap({ width = 1100, height = 860, className }: ChinaMapProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
   const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
   const [zoom, setZoom] = useState(1);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const isMobile = useIsMobile();
   const router = useRouter();
 
   useEffect(() => {
@@ -124,6 +132,30 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
       window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
     };
   }, []);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduceMotion(mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
+  }, []);
+
+  const provinceStats = useMemo(() => {
+    const stats = new Map<string, { count: number; cities: Set<string>; latest?: Memory }>();
+    Object.values(localMemories)
+      .flat()
+      .forEach((memory) => {
+        const city = cityById.get(memory.cityId);
+        if (!city) return;
+        const entry = stats.get(city.provinceId) ?? { count: 0, cities: new Set<string>() };
+        entry.count += 1;
+        entry.cities.add(city.id);
+        if (!entry.latest || memoryTime(memory) > memoryTime(entry.latest)) entry.latest = memory;
+        stats.set(city.provinceId, entry);
+      });
+    return stats;
+  }, [localMemories]);
 
   const litProvinceIds = useMemo(
     () => getLitProvinceIds(getLitCityIds(localMemories)),
@@ -169,7 +201,11 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
     };
   }, [height, localMemories, width]);
 
-  const hoveredPath = mapPaths.find((path) => path.id === hoveredId);
+  const activeId = selectedProvinceId ?? hoveredId;
+  const activePath = activeId ? mapPaths.find((path) => path.id === activeId) : undefined;
+  const activeStats = activeId ? provinceStats.get(activeId) : undefined;
+  const activeCover = activeStats?.latest?.image || activeStats?.latest?.photos?.[0] || null;
+  const previewFlip = activePath ? activePath.x > width * 0.58 : false;
   const zoomProgress = ((zoom - minZoom) / (maxZoom - minZoom)) * 100;
   const setClampedZoom = (nextZoom: number) => {
     setZoom(Math.min(Math.max(nextZoom, minZoom), maxZoom));
@@ -177,6 +213,19 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
 
   const goProvince = (id: string) => {
     router.push(`/province/${id}`);
+  };
+
+  const goProvinceCity = (provinceId: string, cityId: string) => {
+    router.push(`/province/${provinceId}?city=${cityId}`);
+  };
+
+  // 桌面点击即进省（hover 已预览）；移动端先选中预览，再次点同省或点「进入」才跳转。
+  const handleProvinceTap = (id: string) => {
+    if (!isMobile || selectedProvinceId === id) {
+      goProvince(id);
+      return;
+    }
+    setSelectedProvinceId(id);
   };
 
   return (
@@ -239,7 +288,10 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
         transition={{ type: "spring", stiffness: 100, damping: 20 }}
         style={{ transformOrigin: "55% 58%" }}
       >
-        <div className="map-visual-scale relative h-full w-full overflow-visible">
+        <div
+          className="map-visual-scale relative h-full w-full overflow-visible"
+          onClick={() => setSelectedProvinceId(null)}
+        >
           <svg
             className="h-full w-full overflow-visible drop-shadow-[0_16px_26px_rgba(168,200,220,0.18)]"
             viewBox={`0 0 ${width} ${height}`}
@@ -307,7 +359,10 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                     onMouseLeave={() =>
                       setHoveredId((current) => (current === path.id ? null : current))
                     }
-                    onClick={() => goProvince(path.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleProvinceTap(path.id);
+                    }}
                   />
                 );
               })}
@@ -330,7 +385,10 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                       onMouseLeave={() =>
                         setHoveredId((current) => (current === path.id ? null : current))
                       }
-                      onClick={() => goProvince(path.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleProvinceTap(path.id);
+                      }}
                     />
                     <circle
                       cx={path.x}
@@ -357,6 +415,22 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                 ) : null,
               )}
 
+              {!reduceMotion && selectedProvinceId && activePath && (
+                <motion.path
+                  key={`${selectedProvinceId}-spark`}
+                  d={activePath.d}
+                  fill="none"
+                  stroke={colors.bloom}
+                  strokeWidth="2.5"
+                  pointerEvents="none"
+                  filter="url(#visitedGlow)"
+                  style={{ transformBox: "fill-box", transformOrigin: "center" }}
+                  initial={{ opacity: 0.7, scale: 1 }}
+                  animate={{ opacity: [0.7, 0], scale: [1, 1.06] }}
+                  transition={{ duration: 0.7, ease: "easeOut" }}
+                />
+              )}
+
               {route.d && (
                 <motion.path
                   d={route.d}
@@ -368,16 +442,29 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                   strokeDasharray="8 10"
                   strokeOpacity="0.76"
                   pointerEvents="none"
-                  initial={{ pathLength: 0 }}
+                  initial={{ pathLength: reduceMotion ? 1 : 0 }}
                   animate={{ pathLength: 1 }}
-                  transition={{ duration: 1.15, ease: "easeInOut" }}
+                  transition={reduceMotion ? { duration: 0 } : { duration: 1.15, ease: "easeInOut" }}
                 />
               )}
 
               {route.points.map((point) => (
-                <g key={`${point.memory.id}-china-route-node`} pointerEvents="none">
-                  <circle cx={point.x} cy={point.y} r="7" fill={colors.cream} fillOpacity="0.92" />
-                  <circle cx={point.x} cy={point.y} r="3.6" fill={colors.bloom} fillOpacity="0.88" />
+                <g key={`${point.memory.id}-china-route-node`}>
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r="14"
+                    fill="transparent"
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      goProvinceCity(point.city.provinceId, point.city.id);
+                    }}
+                  >
+                    <title>{`${point.city.name} · 第 ${point.order} 站`}</title>
+                  </circle>
+                  <circle cx={point.x} cy={point.y} r="7" fill={colors.cream} fillOpacity="0.92" pointerEvents="none" />
+                  <circle cx={point.x} cy={point.y} r="3.6" fill={colors.bloom} fillOpacity="0.88" pointerEvents="none" />
                   {route.points.length <= 12 && (
                     <text
                       x={point.x}
@@ -387,6 +474,7 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                       fontWeight="700"
                       fill={colors.ink}
                       fillOpacity="0.58"
+                      pointerEvents="none"
                     >
                       {point.order}
                     </text>
@@ -396,20 +484,75 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
             </g>
           </svg>
 
-          {hoveredPath?.province && (
+          {activePath?.province && (
             <motion.div
-              className="pointer-events-none absolute rounded-[8px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/90 px-3 py-2 text-sm text-[#5A6670] shadow-[0_10px_30px_rgba(90,102,112,0.12)] backdrop-blur"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
+              key={activePath.id}
+              className={`absolute z-40 w-[212px] overflow-hidden rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/96 text-[#5A6670] shadow-[0_14px_32px_rgba(90,102,112,0.14)] backdrop-blur ${isMobile ? "" : "pointer-events-none"}`}
+              initial={{ opacity: 0, y: 6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.16 }}
               style={{
-                left: `${(hoveredPath.x / width) * 100}%`,
-                top: `${(hoveredPath.y / height) * 100}%`,
-                transform: "translate(14px, -50%)",
+                left: `${(activePath.x / width) * 100}%`,
+                top: `${(activePath.y / height) * 100}%`,
+                transform: previewFlip
+                  ? "translate(calc(-100% - 14px), -50%)"
+                  : "translate(14px, -50%)",
               }}
+              onClick={(event) => event.stopPropagation()}
             >
-              <span className="mr-2 inline-block h-2 w-2 rounded-sm bg-[#E8B8C2]" />
-              {hoveredPath.province.name}
-              <span className="ml-2 text-[#5A6670]/60">{hoveredPath.province.nameEn}</span>
+              <div className="flex items-start gap-2.5 p-2.5">
+                {activeCover ? (
+                  <Image
+                    src={activeCover}
+                    alt=""
+                    width={48}
+                    height={48}
+                    unoptimized
+                    className="pixelated h-12 w-12 shrink-0 rounded-[6px] border border-[#D8DDD8] object-cover"
+                  />
+                ) : (
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[6px] border border-[#D8DDD8] bg-[#D8DDD8]/40 text-[10px] font-medium text-[#5A6670]/45">
+                    未点亮
+                  </span>
+                )}
+                <div className="min-w-0 flex-1 py-0.5">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="truncate text-sm font-semibold text-[#5A6670]">
+                      {activePath.province.name}
+                    </span>
+                    <span className="truncate text-[11px] text-[#5A6670]/55">
+                      {activePath.province.nameEn}
+                    </span>
+                  </div>
+                  {activeStats ? (
+                    <>
+                      <div className="mt-1 text-[11px] font-medium text-[#E8B8C2]">
+                        {activeStats.count} 条回忆 · 点亮 {activeStats.cities.size} 城
+                      </div>
+                      {activeStats.latest && (
+                        <div className="mt-0.5 truncate text-[11px] text-[#5A6670]/55">
+                          {activeStats.latest.title || activeStats.latest.text || "最近的回忆"}
+                          {activeStats.latest.date ? ` · ${activeStats.latest.date}` : ""}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="mt-1 text-[11px] text-[#5A6670]/55">还没有回忆，去点亮 →</div>
+                  )}
+                </div>
+              </div>
+              {isMobile && (
+                <button
+                  type="button"
+                  className="block w-full border-t border-[#D8DDD8]/64 bg-white/45 px-3 py-2 text-center text-[12px] font-semibold text-[#5A6670] transition hover:bg-[#F5DCE0]/45"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    goProvince(activeId!);
+                  }}
+                >
+                  进入 {activePath.province.name} →
+                </button>
+              )}
             </motion.div>
           )}
         </div>
