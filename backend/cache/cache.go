@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -60,4 +61,14 @@ func Clear() {
 	globalCache.mu.Lock()
 	defer globalCache.mu.Unlock()
 	globalCache.items = make(map[string]CacheItem)
+}
+
+func DeletePrefix(prefix string) {
+	globalCache.mu.Lock()
+	defer globalCache.mu.Unlock()
+	for key := range globalCache.items {
+		if strings.HasPrefix(key, prefix) {
+			delete(globalCache.items, key)
+		}
+	}
 }

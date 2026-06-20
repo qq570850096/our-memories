@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, CheckCircle2, Circle, Route } from "lucide-react";
-import { apiJson } from "@/lib/apiClient";
+import { Calendar, Circle, Route } from "lucide-react";
+import { useApi } from "@/lib/swr";
 
 type TripGuide = {
   id: string;
@@ -22,27 +21,10 @@ type TripGuide = {
 };
 
 export default function TripGuidesCard() {
-  const [guides, setGuides] = useState<TripGuide[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data } = useApi<{ guides: TripGuide[] }>("/api/v1/trip-guides");
+  const guides = (data?.guides ?? []).slice(0, 2); // 只显示最近2个
 
-  useEffect(() => {
-    let cancelled = false;
-
-    apiJson<{ guides: TripGuide[] }>("/trip-guides")
-      .then((data) => {
-        if (!cancelled) setGuides(data.guides.slice(0, 2)); // 只显示最近2个
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (loading || guides.length === 0) return null;
+  if (guides.length === 0) return null;
 
   return (
     <div className="mt-3 rounded-[8px] border border-[#D8DDD8]/70 bg-[#FAFBF7]/62 p-3 text-[#5A6670] shadow-[0_10px_24px_rgba(90,102,112,0.05)]">

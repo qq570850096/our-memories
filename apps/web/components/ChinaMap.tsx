@@ -15,16 +15,15 @@ import {
 import {
   getLitCityIds,
   getLitProvinceIds,
-  memoryStoreUpdatedEvent,
   type LocalMemoryStore,
 } from "@/data/progress";
 import { buildMemoryRoutePoints, curvedRoutePath } from "@/lib/memoryRoutes";
 import { provinces } from "@/data/provinces";
-import { apiFetch } from "@/lib/apiClient";
 import Image from "next/image";
 import { cities } from "@/data/cities";
 import { memoryTime, type Memory } from "@/data/memories";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { useMemoryStore } from "@/lib/memoryStore";
 
 interface ChinaMapProps {
   width?: number;
@@ -100,38 +99,12 @@ export function SouthChinaSeaInset({ compact = false }: Readonly<{ compact?: boo
 export default function ChinaMap({ width = 1100, height = 860, className }: ChinaMapProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
-  const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
   const [zoom, setZoom] = useState(1);
   const [reduceMotion, setReduceMotion] = useState(false);
   const isMobile = useIsMobile();
   const router = useRouter();
-
-  useEffect(() => {
-    let cancelled = false;
-    const handleMemoryUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<LocalMemoryStore>).detail;
-      if (detail) setLocalMemories(detail);
-    };
-
-    async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
-
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled && data?.memories) setLocalMemories(data.memories);
-    }
-
-    window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    loadLocalMemories();
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    };
-  }, []);
+  const { data: memoryData } = useMemoryStore();
+  const localMemories = useMemo<LocalMemoryStore>(() => memoryData?.memories ?? {}, [memoryData?.memories]);
 
   useEffect(() => {
     const mql = window.matchMedia("(prefers-reduced-motion: reduce)");

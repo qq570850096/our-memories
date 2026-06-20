@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"our-memories-backend/db"
+	"our-memories-backend/storage"
 	"our-memories-backend/utils"
 )
 
@@ -61,14 +63,33 @@ func UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	// coupleLogo 是图片设置：记录旧值，写入后清理被替换/删除的 OSS 对象。
+	previousLogo := ""
+	if key == "coupleLogo" {
+		_ = readSettingJSON(spaceID, "coupleLogo", &previousLogo)
+	}
+
 	if value == nil {
 		_, err := db.DB.Exec(`DELETE FROM settings WHERE space_id = ? AND key = ?`, spaceID, key)
 		if err != nil {
 			utils.Error(c, 500, "Failed to update setting")
 			return
 		}
+		if previousLogo != "" {
+			storage.DeleteObjectByURL(previousLogo)
+		}
 		utils.Success(c, gin.H{"ok": true})
 		return
+	}
+	if key == "coupleLogo" {
+		if image, ok := value.(string); ok && strings.HasPrefix(image, "data:image/") {
+			url, err := uploadDataURL(spaceID, "settings", image)
+			if err != nil {
+				utils.Error(c, 500, "Failed to upload setting image")
+				return
+			}
+			value = url
+		}
 	}
 
 	valueJSON, _ := json.Marshal(value)
@@ -80,6 +101,10 @@ func UpdateSetting(c *gin.Context) {
 	if err != nil {
 		utils.Error(c, 500, "Failed to update setting")
 		return
+	}
+
+	if newLogo, ok := value.(string); ok && previousLogo != "" && previousLogo != newLogo {
+		storage.DeleteObjectByURL(previousLogo)
 	}
 
 	utils.Success(c, gin.H{"ok": true})

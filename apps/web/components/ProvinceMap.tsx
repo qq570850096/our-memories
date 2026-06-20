@@ -32,6 +32,9 @@ import { adminModeUpdatedEvent } from "@/data/adminMode";
 import { normalizeDottedDate } from "@/lib/dateFormat";
 import { computeMemoryEditAccess, useContentEditAccess, useMemoryEditAccess } from "@/lib/useContentEditAccess";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { publishMemoryStore, useMemoryStore } from "@/lib/memoryStore";
+import { useApi } from "@/lib/swr";
+import { uploadImage, uploadImages, deleteUploaded } from "@/lib/upload";
 
 interface ProvinceMapProps {
   province: Province;
@@ -42,8 +45,8 @@ interface ProvinceMapProps {
 type BrowserTimeout = ReturnType<Window["setTimeout"]>;
 type PhotoDraft = {
   previewUrl: string;
-  dataUrl: string | null;
   name: string;
+  file: File;
 };
 type CardAnchor = {
   x: number;
@@ -63,6 +66,7 @@ type DragState = {
 };
 type MemoryPanelTab = "memory" | "gallery" | "history";
 type CityAssetStore = Record<string, string>;
+const EMPTY_CITY_ASSETS: CityAssetStore = {};
 
 const colors = {
   cream: "#FAFBF7",
@@ -77,10 +81,6 @@ const colors = {
 const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
 const memoryTextMaxLength = 80;
 const maxPhotosPerMemory = 24;
-const memoryPhotoMaxDimension = 900;
-const memoryPhotoQuality = 0.52;
-const landmarkPhotoMaxDimension = 1280;
-const landmarkPhotoQuality = 0.76;
 const memoryCardWidth = 292;
 const memoryCardGap = 26;
 const memoryCardMaxHeight = 620;
@@ -235,80 +235,6 @@ const stableCoordinate = (value: number) => Number(value.toFixed(3));
 
 const clampZoom = (value: number) => Math.min(Math.max(value, 1), 2.4);
 
-const readBlobAsDataUrl = (blob: Blob) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.addEventListener("load", () => {
-      if (typeof reader.result === "string") resolve(reader.result);
-      else reject(new Error("Image read failed"));
-    });
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("Image read failed")));
-    reader.readAsDataURL(blob);
-  });
-
-const readFileAsDataUrl = (file: File) => readBlobAsDataUrl(file);
-
-const loadImageFile = (file: File) =>
-  new Promise<HTMLImageElement>((resolve, reject) => {
-    const imageUrl = URL.createObjectURL(file);
-    const image = new window.Image();
-
-    image.addEventListener(
-      "load",
-      () => {
-        URL.revokeObjectURL(imageUrl);
-        resolve(image);
-      },
-      { once: true },
-    );
-    image.addEventListener(
-      "error",
-      () => {
-        URL.revokeObjectURL(imageUrl);
-        reject(new Error("Image load failed"));
-      },
-      { once: true },
-    );
-    image.src = imageUrl;
-  });
-
-async function readCompressedImageDataUrl(
-  file: File,
-  {
-    maxDimension,
-    quality,
-  }: Readonly<{
-    maxDimension: number;
-    quality: number;
-  }>,
-) {
-  if (file.type === "image/svg+xml") return readFileAsDataUrl(file);
-
-  const image = await loadImageFile(file);
-  const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext("2d");
-  if (!context) return readFileAsDataUrl(file);
-
-  context.fillStyle = "#FAFBF7";
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, 0, 0, width, height);
-
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", quality);
-  });
-
-  if (!blob) return readFileAsDataUrl(file);
-
-  return readBlobAsDataUrl(blob);
-}
-
 const revokePhotoDrafts = (photos: PhotoDraft[]) => {
   photos.forEach((photo) => revokeObjectUrl(photo.previewUrl));
 };
@@ -324,9 +250,11 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   const longPressTimeoutRef = useRef<BrowserTimeout | null>(null);
   const previousLitCityIdsRef = useRef<Set<string> | null>(null);
   const localMemoriesRef = useRef<LocalMemoryStore>({});
+  const { data: memoryData, mutate: mutateMemories } = useMemoryStore();
   const cameraRef = useRef<MapCamera>({ scale: 1, x: 0, y: 0 });
   const dragStateRef = useRef<DragState | null>(null);
   const dragMovedRef = useRef(false);
+  const emptyMemories = useMemo<LocalMemoryStore>(() => ({}), []);
   const [selectedCityId, setSelectedCityId] = useState<string | null>(null);
   const [nudgedCityId, setNudgedCityId] = useState<string | null>(null);
   const [sparkedCityId, setSparkedCityId] = useState<string | null>(null);
@@ -334,9 +262,12 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   const [mobileSheetMode, setMobileSheetMode] = useState<"view" | "create">("view");
   const [dragging, setDragging] = useState(false);
   const [frameScale, setFrameScale] = useState(1);
-  const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
-  const [cityAssets, setCityAssets] = useState<CityAssetStore>({});
+  const { data: cityAssetData, mutate: mutateCityAssets } = useApi<{ assets?: CityAssetStore }>(
+    "/api/v1/city-assets",
+  );
+  const cityAssets = cityAssetData?.assets ?? EMPTY_CITY_ASSETS;
   const [camera, setCameraState] = useState<MapCamera>({ scale: 1, x: 0, y: 0 });
+  const localMemories = memoryData?.memories ?? emptyMemories;
   const provinceCities = useMemo(() => getCitiesByProvince(province.id), [province.id]);
   const litCityIds = useMemo(() => getLitCityIds(localMemories), [localMemories]);
   const selectedCity = provinceCities.find((city) => city.id === selectedCityId) ?? null;
@@ -364,6 +295,12 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
       return clamped;
     });
   };
+
+  const commitMemoryStore = useCallback((memories: LocalMemoryStore) => {
+    localMemoriesRef.current = memories;
+    void mutateMemories({ memories }, { revalidate: false });
+    publishMemoryStore(memories);
+  }, [mutateMemories]);
 
   useEffect(() => {
     return () => {
@@ -411,54 +348,35 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     };
   }, []);
 
-  const loadLocalState = useCallback(async () => {
-    const [memoryResponse, assetResponse] = await Promise.all([
-      apiFetch("/api/v1/memories", { cache: "no-store" }).catch(() => null),
-      apiFetch("/api/v1/city-assets", { cache: "no-store" }).catch(() => null),
-    ]);
-
-    const memoryData = (await memoryResponse?.json().catch(() => null)) as
-      | { memories?: LocalMemoryStore }
-      | null;
-    const assetData = (await assetResponse?.json().catch(() => null)) as
-      | { assets?: CityAssetStore }
-      | null;
-
-    if (memoryData?.memories) setLocalMemories(memoryData.memories);
-    if (assetData?.assets) setCityAssets(assetData.assets);
-    return memoryData?.memories;
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     const applyMemories = (memories: LocalMemoryStore) => {
       if (cancelled) return;
       localMemoriesRef.current = memories;
-      setLocalMemories(memories);
+      void mutateMemories({ memories }, { revalidate: false });
     };
-    const reloadLocalState = () => {
-      void loadLocalState().then((memories) => {
-        if (memories) applyMemories(memories);
-      });
+    const reloadRemoteState = () => {
+      void mutateCityAssets();
+      void mutateMemories();
     };
     const handleMemoryUpdate = (event: Event) => {
       const detail = (event as CustomEvent<LocalMemoryStore>).detail;
       if (detail) applyMemories(detail);
     };
 
-    const timer = window.setTimeout(reloadLocalState, 0);
+    // 进入页面走缓存（不强制重拉）；仅在管理模式切换 / 跨标签页 storage 变化时刷新，
+    // 常规新鲜度由 SWR 的 focus/reconnect 后台刷新负责。
     window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    window.addEventListener(adminModeUpdatedEvent, reloadLocalState);
-    window.addEventListener("storage", reloadLocalState);
+    window.addEventListener(adminModeUpdatedEvent, reloadRemoteState);
+    window.addEventListener("storage", reloadRemoteState);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
       window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-      window.removeEventListener(adminModeUpdatedEvent, reloadLocalState);
-      window.removeEventListener("storage", reloadLocalState);
+      window.removeEventListener(adminModeUpdatedEvent, reloadRemoteState);
+      window.removeEventListener("storage", reloadRemoteState);
     };
-  }, [loadLocalState]);
+  }, [mutateCityAssets, mutateMemories]);
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
@@ -590,13 +508,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     if (!response.ok) throw new Error("Failed to save memory");
 
     const data = (await response.json()) as { memories: LocalMemoryStore };
-
-    setLocalMemories(() => {
-      localMemoriesRef.current = data.memories;
-
-      return data.memories;
-    });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: data.memories }));
+    commitMemoryStore(data.memories);
   };
 
   const handleSetMemoryCover = async (cityId: string, memoryId: string, coverImage: string) => {
@@ -611,13 +523,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     if (!response.ok) throw new Error("Failed to update memory cover");
 
     const data = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
-
-    setLocalMemories(() => {
-      localMemoriesRef.current = data.memories;
-
-      return data.memories;
-    });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: data.memories }));
+    commitMemoryStore(data.memories);
   };
 
   const handleUpdateMemory = async (cityId: string, memoryId: string, memory: MemoryPatchPayload) => {
@@ -632,13 +538,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     if (!response.ok) throw new Error("Failed to update memory");
 
     const data = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
-
-    setLocalMemories(() => {
-      localMemoriesRef.current = data.memories;
-
-      return data.memories;
-    });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: data.memories }));
+    commitMemoryStore(data.memories);
   };
 
   const handleDeleteMemory = async (cityId: string, memoryId: string) => {
@@ -651,13 +551,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     if (!response.ok) throw new Error("Failed to delete memory");
 
     const data = (await response.json()) as { memories: LocalMemoryStore };
-
-    setLocalMemories(() => {
-      localMemoriesRef.current = data.memories;
-
-      return data.memories;
-    });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: data.memories }));
+    commitMemoryStore(data.memories);
   };
 
   const handleSaveCityAsset = async (cityId: string, image: string) => {
@@ -672,7 +566,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     if (!response.ok) throw new Error("Failed to save city asset");
 
     const data = (await response.json()) as { assets: CityAssetStore };
-    setCityAssets(data.assets);
+    void mutateCityAssets({ assets: data.assets }, { revalidate: false });
   };
 
   const handleDeleteCityAsset = async (cityId: string) => {
@@ -687,7 +581,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     if (!response.ok) throw new Error("Failed to delete city asset");
 
     const data = (await response.json()) as { assets: CityAssetStore };
-    setCityAssets(data.assets);
+    void mutateCityAssets({ assets: data.assets }, { revalidate: false });
   };
 
   const focusCity = (city: Pick<City, "id">) => {
@@ -1371,10 +1265,8 @@ function MemoryCard({
   const [landmarkSaving, setLandmarkSaving] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<MemoryPanelTab>("memory");
-  const [isReadingPhoto, setIsReadingPhoto] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const photoDraftsRef = useRef<PhotoDraft[]>([]);
-  const photoReadTokenRef = useRef(0);
   const mountedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const landmarkInputRef = useRef<HTMLInputElement>(null);
@@ -1399,7 +1291,6 @@ function MemoryCard({
     ? canEditFields
       ? Boolean(normalizedDate) &&
         trimmedText.length > 0 &&
-        !isReadingPhoto &&
         !photoError &&
         !isSaving
       : canAnnotate &&
@@ -1414,7 +1305,6 @@ function MemoryCard({
   const showHistory = (!expanded || activeTab === "history") && memories.length > 0;
 
   const resetForm = (revokePhoto: boolean) => {
-    photoReadTokenRef.current += 1;
     setTitle("");
     setPlaceName("");
     setDate("");
@@ -1430,7 +1320,6 @@ function MemoryCard({
     setSaveError("");
     setCoverError("");
     setDeleteError("");
-    setIsReadingPhoto(false);
     setEditingMemory(null);
     if (revokePhoto) revokePhotoDrafts(photoDraftsRef.current);
     photoDraftsRef.current = [];
@@ -1441,7 +1330,6 @@ function MemoryCard({
   const startEdit = (record: Memory) => {
     if (!isAdmin) return;
 
-    photoReadTokenRef.current += 1;
     revokePhotoDrafts(photoDraftsRef.current);
     photoDraftsRef.current = [];
     setPhotoDrafts([]);
@@ -1494,12 +1382,11 @@ function MemoryCard({
 
     return () => {
       mountedRef.current = false;
-      photoReadTokenRef.current += 1;
       revokePhotoDrafts(photoDraftsRef.current);
     };
   }, []);
 
-  const handlePickFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePickFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) {
       event.target.value = "";
       setPhotoError("请先登录后再选择照片");
@@ -1511,43 +1398,17 @@ function MemoryCard({
       .slice(0, maxPhotosPerMemory);
     if (files.length === 0) return;
 
-    const readToken = photoReadTokenRef.current + 1;
-    photoReadTokenRef.current = readToken;
     revokePhotoDrafts(photoDraftsRef.current);
     const nextPhotoDrafts = files.map((file) => ({
       previewUrl: URL.createObjectURL(file),
-      dataUrl: null,
       name: file.name,
+      file,
     }));
 
     photoDraftsRef.current = nextPhotoDrafts;
     setPhotoDrafts(nextPhotoDrafts);
     setPhotoError("");
     setSaveError("");
-    setIsReadingPhoto(true);
-
-    try {
-      const dataUrls = await Promise.all(
-        files.map((file) =>
-          readCompressedImageDataUrl(file, {
-            maxDimension: memoryPhotoMaxDimension,
-            quality: memoryPhotoQuality,
-          }),
-        ),
-      );
-      if (!mountedRef.current || photoReadTokenRef.current !== readToken) return;
-      const nextReadyDrafts = nextPhotoDrafts.map((photo, index) => ({
-        ...photo,
-        dataUrl: dataUrls[index],
-      }));
-      photoDraftsRef.current = nextReadyDrafts;
-      setPhotoDrafts(nextReadyDrafts);
-    } catch {
-      if (!mountedRef.current || photoReadTokenRef.current !== readToken) return;
-      setPhotoError("图片读取失败，请重新选择");
-    } finally {
-      if (mountedRef.current && photoReadTokenRef.current === readToken) setIsReadingPhoto(false);
-    }
   };
 
   const handlePolishMemory = async () => {
@@ -1595,15 +1456,13 @@ function MemoryCard({
     setLandmarkSaving(true);
     setLandmarkError("");
 
+    let uploadedKey = "";
     try {
-      await onSaveLandmark(
-        city.id,
-        await readCompressedImageDataUrl(file, {
-          maxDimension: landmarkPhotoMaxDimension,
-          quality: landmarkPhotoQuality,
-        }),
-      );
+      const uploaded = await uploadImage(file, "city-assets");
+      uploadedKey = uploaded.key;
+      await onSaveLandmark(city.id, uploaded.url);
     } catch {
+      await deleteUploaded([uploadedKey]);
       setLandmarkError("地标图片保存失败，请重新选择");
     } finally {
       if (mountedRef.current) setLandmarkSaving(false);
@@ -1644,6 +1503,7 @@ function MemoryCard({
     setIsSaving(true);
     setSaveError("");
 
+    let uploadedKeys: string[] = [];
     try {
       if (editingMemory && canAnnotate && !canEditFields) {
         await onUpdate(city.id, editingMemory.id, { partnerNote: partnerNote.trim() });
@@ -1654,7 +1514,9 @@ function MemoryCard({
 
       if (!normalizedDate) return;
 
-      const photos = photoDrafts.map((photo) => photo.dataUrl).filter((photo): photo is string => Boolean(photo));
+      const uploaded = await uploadImages(photoDrafts.map((photo) => photo.file), "memories");
+      uploadedKeys = uploaded.map((item) => item.key);
+      const photos = uploaded.map((item) => item.url);
       const nextTags = Array.from(
         new Set(
           tags
@@ -1684,10 +1546,20 @@ function MemoryCard({
       };
 
       if (editingMemory) {
-        await onUpdate(city.id, editingMemory.id, {
-          ...nextMemory,
-          photos: memoryPhotosPayload(nextMemory.photos ?? [nextMemory.image]),
-        });
+        const patch: MemoryPatchPayload = {
+          title: nextMemory.title,
+          placeName: nextMemory.placeName,
+          date: nextMemory.date,
+          image: nextMemory.image,
+          text: nextMemory.text,
+          mood: nextMemory.mood,
+          tags: nextMemory.tags,
+          visibility: nextMemory.visibility,
+        };
+        if (uploaded.length > 0) {
+          patch.photos = memoryPhotosPayload(nextMemory.photos ?? [nextMemory.image]);
+        }
+        await onUpdate(city.id, editingMemory.id, patch);
       }
       else await onSave(city.id, {
         id: `${city.id}-local`,
@@ -1707,6 +1579,7 @@ function MemoryCard({
       resetForm(true);
       setFormOpen(false);
     } catch {
+      await deleteUploaded(uploadedKeys);
       setSaveError("保存失败，请稍后再试");
     } finally {
       if (mountedRef.current) setIsSaving(false);
@@ -2299,11 +2172,6 @@ function MemoryCard({
                           <span className="mt-2 block text-xs text-[#5A6670]/58">
                             已选择 {photoDrafts.length} 张
                           </span>
-                          {isReadingPhoto && (
-                            <span className="absolute inset-0 grid place-items-center bg-[#FAFBF7]/72 text-xs text-[#5A6670]/70">
-                              读取中
-                            </span>
-                          )}
                         </span>
                       ) : (
                         <>

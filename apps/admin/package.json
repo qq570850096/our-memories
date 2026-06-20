@@ -1,0 +1,30 @@
+{
+  "name": "@map-of-us/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3003",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint app lib components",
+    "typecheck": "tsc --noEmit",
+    "deploy": "npm run build && rm -rf ../../backend/public/admin && mkdir -p ../../backend/public/admin && cp -r out/* ../../backend/public/admin/"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "swr": "^2.2.5",
+    "lucide-react": "^1.16.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "25.9.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "typescript": "^5.7.3"
+  }
+}

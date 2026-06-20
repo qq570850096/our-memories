@@ -1,5 +1,16 @@
 # syntax=docker/dockerfile:1
 
+FROM node:22-alpine AS admin-builder
+
+WORKDIR /src
+
+COPY package.json package-lock.json ./
+COPY apps/admin/package.json apps/admin/package.json
+RUN npm ci --workspace @map-of-us/admin --include-workspace-root=false
+
+COPY apps/admin apps/admin
+RUN npm run build -w @map-of-us/admin
+
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /src/backend
@@ -23,6 +34,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 
 COPY --from=builder /out/our-memories-api ./our-memories-api
+COPY --from=admin-builder /src/apps/admin/out ./public/admin
 
 ENV PORT=8080 \
   DATABASE_PATH=/app/data/ourMemories.db \

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { CalendarHeart, ImagePlus, Pencil, Pin, Plus, Trash2, X } from "lucide-react";
 import { anniversaryDisplayState, type AnniversaryCard } from "@map-of-us/shared";
 import { MemoryPageShell } from "@/components/MemoryNav";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DatePicker, Input, Textarea } from "@/components/ui/input";
 import { apiJson } from "@/lib/apiClient";
+import { uploadImages, deleteUploaded } from "@/lib/upload";
+import { useApi } from "@/lib/swr";
 import { useContentEditAccess } from "@/lib/useContentEditAccess";
 
 const emptyForm = {
@@ -60,7 +62,7 @@ const normalizeCardsResponse = (data: {
   });
 };
 
-const photoPayload = (photos: string[]) => photos.map((url) => ({ url, key: "", mimeType: "image/jpeg" }));
+const photoPayload = (photos: string[]) => photos.filter(Boolean).map((url) => ({ url, key: "", mimeType: "image/jpeg" }));
 
 const isBrowserImageUrl = (url: string) => url.startsWith("data:image/") || url.startsWith("https://");
 
@@ -72,59 +74,19 @@ function AnniversaryImage({ src, alt }: Readonly<{ src: string; alt: string }>) 
   return <LocalPrivacyImage className="object-cover" src={src} alt={alt} fill sizes="(max-width: 768px) 90vw, 360px" />;
 }
 
-function fileToImageDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    if (!file.type.startsWith("image/")) {
-      reject(new Error("Invalid image"));
-      return;
-    }
-
-    const url = URL.createObjectURL(file);
-    const image = new window.Image();
-    image.addEventListener("load", () => {
-      const maxSize = 1600;
-      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
-      const width = Math.max(1, Math.round(image.naturalWidth * scale));
-      const height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
-      URL.revokeObjectURL(url);
-      if (!context) {
-        reject(new Error("Canvas unavailable"));
-        return;
-      }
-      canvas.width = width;
-      canvas.height = height;
-      context.drawImage(image, 0, 0, width, height);
-      resolve(canvas.toDataURL("image/jpeg", 0.88));
-    });
-    image.addEventListener("error", () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Image read failed"));
-    });
-    image.src = url;
-  });
-}
-
 export default function AnniversaryWall() {
-  const [cards, setCards] = useState<AnniversaryCard[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState(false);
   const isAdmin = useContentEditAccess();
   const [working, setWorking] = useState(false);
+  const [photoKeys, setPhotoKeys] = useState<string[]>([]);
+  const [photosDirty, setPhotosDirty] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const loadCards = async () => {
-    const data = await apiJson<{ cards?: AnniversaryCard[]; anniversaryCards?: ServerAnniversaryCard[] }>("/api/v1/anniversary-cards");
-    setCards(normalizeCardsResponse(data));
-  };
-
-  useEffect(() => {
-    void loadCards()
-      .catch(() => setStatus("纪念日墙读取失败，请稍后再试。"));
-  }, []);
+  const { data: cardsData, error: cardsError, mutate: mutateCards } =
+    useApi<{ cards?: AnniversaryCard[]; anniversaryCards?: ServerAnniversaryCard[] }>("/api/v1/anniversary-cards");
+  const cards = useMemo(() => normalizeCardsResponse(cardsData ?? {}), [cardsData]);
 
   const stats = useMemo(() => {
     const next = cards
@@ -142,6 +104,8 @@ export default function AnniversaryWall() {
     setForm(emptyForm);
     setEditingId("");
     setOpen(false);
+    setPhotoKeys([]);
+    setPhotosDirty(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -149,13 +113,15 @@ export default function AnniversaryWall() {
     const files = Array.from(event.target.files ?? []).slice(0, 6);
     if (files.length === 0) return;
     setWorking(true);
-    setStatus("正在读取照片...");
+    setStatus("正在上传照片...");
     try {
-      const photos = await Promise.all(files.map(fileToImageDataUrl));
-      setForm((current) => ({ ...current, photos }));
+      const uploaded = await uploadImages(files, "anniversaries");
+      setForm((current) => ({ ...current, photos: uploaded.map((item) => item.url) }));
+      setPhotoKeys(uploaded.map((item) => item.key));
+      setPhotosDirty(true);
       setStatus("");
     } catch {
-      setStatus("照片读取失败，请重新选择。");
+      setStatus("照片上传失败，请重新选择。");
     } finally {
       setWorking(false);
     }
@@ -174,14 +140,21 @@ export default function AnniversaryWall() {
     setWorking(true);
     setStatus("");
     try {
-      const payload = {
+      const payload: {
+        title: string;
+        date: string;
+        note: string;
+        repeatYearly: boolean;
+        pinned: boolean;
+        photos?: ReturnType<typeof photoPayload>;
+      } = {
         title: form.title.trim(),
         date: form.date.trim(),
         note: form.note.trim(),
         repeatYearly: form.repeatYearly,
         pinned: form.pinned,
-        photos: photoPayload(form.photos),
       };
+      if (!editingId || photosDirty) payload.photos = photoPayload(form.photos);
       if (editingId) {
         await apiJson<{ ok: true }>(`/anniversary-cards/${editingId}`, {
             method: "PATCH",
@@ -193,10 +166,11 @@ export default function AnniversaryWall() {
             body: JSON.stringify(payload),
         });
       }
-      await loadCards();
+      await mutateCards();
       resetForm();
       setStatus(editingId ? "纪念日已更新。" : "纪念日已添加。");
     } catch {
+      await deleteUploaded(photoKeys);
       setStatus("保存失败，请检查日期格式。");
     } finally {
       setWorking(false);
@@ -205,6 +179,7 @@ export default function AnniversaryWall() {
 
   const startEdit = (card: AnniversaryCard) => {
     if (!isAdmin) return;
+    const photos = card.photos?.length ? card.photos : card.image ? [card.image] : [];
     setEditingId(card.id);
     setForm({
       title: card.title,
@@ -212,10 +187,13 @@ export default function AnniversaryWall() {
       note: card.note,
       repeatYearly: card.repeatYearly,
       pinned: card.pinned,
-      photos: [],
+      photos,
     });
+    setPhotoKeys([]);
+    setPhotosDirty(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setOpen(true);
-    setStatus("正在编辑，未重新选择照片时会保留原照片。");
+    setStatus(photos.length > 0 ? "正在编辑，可重新选择照片替换原照片。" : "正在编辑，可选择照片。");
   };
 
   const remove = async (card: AnniversaryCard) => {
@@ -229,7 +207,7 @@ export default function AnniversaryWall() {
     setWorking(true);
     try {
       await apiJson<{ ok: true }>(`/anniversary-cards/${card.id}`, { method: "DELETE" });
-      await loadCards();
+      await mutateCards();
       setStatus("纪念日已删除。");
     } catch {
       setStatus("删除失败，请稍后再试。");
@@ -254,6 +232,11 @@ export default function AnniversaryWall() {
           {stats.count} 个纪念日{stats.nearest?.valid ? ` · ${stats.nearest.label}` : ""}
         </div>
       </header>
+      {cardsError && (
+        <div className="mt-4 rounded-[8px] border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          纪念日墙读取失败，请稍后再试。
+        </div>
+      )}
 
       {/* 悬浮FAB按钮 */}
       <button

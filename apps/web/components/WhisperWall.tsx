@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { MessageCircle, Plus, X } from "lucide-react";
 import { MemoryPageShell } from "@/components/MemoryNav";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiJson } from "@/lib/apiClient";
+import { useApi } from "@/lib/swr";
 import { useContentEditAccess } from "@/lib/useContentEditAccess";
 
 type WhisperReply = {
@@ -25,21 +26,13 @@ type Whisper = {
 };
 
 export function WhisperWall() {
-  const [whispers, setWhispers] = useState<Whisper[]>([]);
   const [open, setOpen] = useState(false);
   const [replyOpen, setReplyOpen] = useState("");
   const [form, setForm] = useState({ title: "", content: "" });
   const [replyContent, setReplyContent] = useState("");
   const isAdmin = useContentEditAccess();
-
-  const load = async () => {
-    const data = await apiJson<{ whispers: Whisper[] }>("/api/v1/whispers");
-    setWhispers(data.whispers || []);
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
+  const { data, mutate } = useApi<{ whispers: Whisper[] }>("/api/v1/whispers");
+  const whispers = data?.whispers ?? [];
 
   const create = async () => {
     if (!form.title.trim()) return;
@@ -49,7 +42,7 @@ export function WhisperWall() {
     });
     setForm({ title: "", content: "" });
     setOpen(false);
-    void load();
+    void mutate();
   };
 
   const reply = async (whisperId: string) => {
@@ -60,7 +53,7 @@ export function WhisperWall() {
     });
     setReplyContent("");
     setReplyOpen("");
-    void load();
+    void mutate();
   };
 
   return (

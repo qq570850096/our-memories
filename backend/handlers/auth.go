@@ -130,8 +130,8 @@ func UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	if len(req.NewPassword) < 1 || len(req.NewPassword) > 128 {
-		utils.Error(c, 400, "Password length must be 1-128")
+	if len(req.NewPassword) < 8 || len(req.NewPassword) > 128 {
+		utils.Error(c, 400, "Password length must be 8-128")
 		return
 	}
 

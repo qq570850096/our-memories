@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
   CalendarDays,
@@ -12,35 +12,9 @@ import {
 } from "lucide-react";
 import { cities } from "@/data/cities";
 import { MemoryPageShell, type MemoryNavKey } from "@/components/MemoryNav";
-import {
-  memoryStoreUpdatedEvent,
-  type LocalMemoryStore,
-} from "@/data/progress";
-import {
-  readAppSettings,
-  writeAppSettings,
-  syncAppSettings,
-  defaultAnniversaryDate,
-  defaultAnniversaryLabel,
-  defaultCoupleLogo,
-  defaultWeatherCityIds,
-  maxWeatherCities,
-  type AppSettings,
-  type LoginPhotoText,
-} from "@/data/appSettings";
-import {
-  deleteLoginPhotoText,
-  deleteLoginPhoto,
-  loginPhotosUpdatedEvent,
-  readLoginPhotoTexts,
-  readLoginPhotos,
-  writeLoginPhotoText,
-  writeLoginPhoto,
-} from "@/data/loginPhotoStore";
-import { LocalPrivacyImage } from "@/components/LocalPrivacyImage";
 import { DatePicker } from "@/components/ui/input";
 import { apiFetch } from "@/lib/apiClient";
-import { readSession } from "@/lib/authStore";
+import { useApi } from "@/lib/swr";
 import { useContentEditAccess } from "@/lib/useContentEditAccess";
 
 type StoredItem = {
@@ -50,7 +24,6 @@ type StoredItem = {
   note: string;
   cityId?: string;
 };
-type CityAssetStore = Record<string, string>;
 type AuxiliaryPayload = {
   items?: StoredItem[];
 };
@@ -91,22 +64,6 @@ const configs = {
   },
 } satisfies Record<string, ToolConfig>;
 
-const auxiliaryStorageKeys = ["mapofus:favorites", "mapofus:anniversaries", "mapofus:capsules"] as const;
-const loginPhotoVersion = "placeholder-20260601";
-const loginPhotoFallback = (fileName: string) => `/photos/login/${fileName}.jpg?v=${loginPhotoVersion}`;
-
-const loginPhotoSlots = [
-  { id: "hangzhou", city: "杭州", label: "春日湖畔", fallback: loginPhotoFallback("hangzhou") },
-  { id: "shanghai", city: "上海", label: "外滩傍晚", fallback: loginPhotoFallback("shanghai") },
-  { id: "macau", city: "澳门", label: "旧城花影", fallback: loginPhotoFallback("macau") },
-  { id: "hongkong", city: "香港", label: "夜色亮起", fallback: loginPhotoFallback("hongkong") },
-  { id: "qingdao", city: "青岛", label: "海风经过", fallback: loginPhotoFallback("qingdao") },
-  { id: "zhengzhou", city: "郑州", label: "见面那天", fallback: loginPhotoFallback("zhengzhou") },
-  { id: "zhuhai", city: "珠海", label: "海边散步", fallback: loginPhotoFallback("zhuhai") },
-  { id: "guangzhou", city: "广州", label: "旧街热气", fallback: loginPhotoFallback("guangzhou") },
-  { id: "jinan", city: "济南", label: "泉边小记", fallback: loginPhotoFallback("jinan") },
-] as const;
-
 const readItems = (key: string): StoredItem[] => {
   if (typeof window === "undefined") return [];
 
@@ -142,179 +99,33 @@ const normalizeItems = (value: unknown): StoredItem[] => {
 };
 
 const auxiliaryEndpoint = (kind: ToolConfig["kind"]) =>
-  `/auxiliary-items?kind=${encodeURIComponent(kind)}`;
-
-const auxiliaryStorageKeyByKind = {
-  favorite: "mapofus:favorites",
-  anniversary: "mapofus:anniversaries",
-  capsule: "mapofus:capsules",
-} satisfies Record<ToolConfig["kind"], (typeof auxiliaryStorageKeys)[number]>;
+  `/api/v1/auxiliary-items?kind=${encodeURIComponent(kind)}`;
 
 const auxiliaryMigrationKey = (kind: ToolConfig["kind"]) => `mapofus:${kind}:migrated-to-server-v1`;
 
-const loadAuxiliaryItems = async (config: ToolConfig) => {
+const auxiliaryFingerprint = (item: StoredItem) =>
+  `${item.title}|${item.date ?? ""}|${item.note}|${item.cityId ?? ""}`;
+
+// 一次性把本地遗留条目迁移到服务端，返回是否真的发生了迁移（用于触发重新拉取）。
+const migrateLocalAuxiliaryItems = async (config: ToolConfig, serverItems: StoredItem[]) => {
   const localItems = readItems(config.storageKey);
-  const response = await apiFetch(auxiliaryEndpoint(config.kind), { cache: "no-store" }).catch(() => null);
-
-  if (!response?.ok) return localItems;
-
-  const data = (await response.json().catch(() => null)) as AuxiliaryPayload | null;
-  let serverItems = normalizeItems(data?.items ?? []);
   const migrationKey = auxiliaryMigrationKey(config.kind);
-  const shouldMigrate = localItems.length > 0 && window.localStorage.getItem(migrationKey) !== "1";
+  if (localItems.length === 0 || window.localStorage.getItem(migrationKey) === "1") return false;
 
-  if (shouldMigrate) {
-    const existingFingerprints = new Set(
-      serverItems.map((item) => `${item.title}|${item.date ?? ""}|${item.note}|${item.cityId ?? ""}`),
-    );
-    const localOnlyItems = localItems.filter(
-      (item) => !existingFingerprints.has(`${item.title}|${item.date ?? ""}|${item.note}|${item.cityId ?? ""}`),
-    );
+  const existing = new Set(serverItems.map(auxiliaryFingerprint));
+  const localOnly = localItems.filter((item) => !existing.has(auxiliaryFingerprint(item)));
+  window.localStorage.setItem(migrationKey, "1");
+  if (localOnly.length === 0) return false;
 
-    await Promise.all(
-      localOnlyItems.map((item) =>
-        apiFetch("/auxiliary-items", {
-          method: "POST",
-          body: JSON.stringify({ ...item, kind: config.kind }),
-        }).catch(() => null),
-      ),
-    );
-    window.localStorage.setItem(migrationKey, "1");
-
-    const migratedResponse = await apiFetch(auxiliaryEndpoint(config.kind), { cache: "no-store" }).catch(() => null);
-    const migratedData = (await migratedResponse?.json().catch(() => null)) as AuxiliaryPayload | null;
-    serverItems = normalizeItems(migratedData?.items ?? serverItems);
-  }
-
-  writeItems(config.storageKey, serverItems);
-  return serverItems;
-};
-
-const readAuxiliaryBackup = async () => {
-  const localBackup = Object.fromEntries(auxiliaryStorageKeys.map((key) => [key, readJsonArray(key)]));
-  const response = await apiFetch("/auxiliary-items", { cache: "no-store" }).catch(() => null);
-  if (!response?.ok) return localBackup;
-
-  const data = (await response.json().catch(() => null)) as
-    | { items?: Array<StoredItem & { kind?: ToolConfig["kind"] }> }
-    | null;
-  const grouped: Record<(typeof auxiliaryStorageKeys)[number], StoredItem[]> = {
-    "mapofus:favorites": [],
-    "mapofus:anniversaries": [],
-    "mapofus:capsules": [],
-  };
-
-  for (const item of data?.items ?? []) {
-    if (!item.kind || !(item.kind in auxiliaryStorageKeyByKind)) continue;
-    grouped[auxiliaryStorageKeyByKind[item.kind]].push({
-      id: item.id,
-      title: item.title,
-      date: item.date,
-      note: item.note,
-      cityId: item.cityId,
-    });
-  }
-
-  return grouped;
-};
-
-const useAdminMode = () => {
+  await Promise.all(
+    localOnly.map((item) =>
+      apiFetch("/auxiliary-items", {
+        method: "POST",
+        body: JSON.stringify({ ...item, kind: config.kind }),
+      }).catch(() => null),
+    ),
+  );
   return true;
-};
-
-const readJsonArray = (key: string) => {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]") as unknown;
-
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const imageFileToSettingImage = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    if (!file.type.startsWith("image/")) {
-      reject(new Error("Invalid image"));
-      return;
-    }
-
-    const url = URL.createObjectURL(file);
-    const image = new window.Image();
-
-    image.addEventListener("load", () => {
-      const maxSize = 1800;
-      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
-      const width = Math.max(1, Math.round(image.naturalWidth * scale));
-      const height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
-
-      URL.revokeObjectURL(url);
-
-      if (!context) {
-        reject(new Error("Canvas unavailable"));
-        return;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-      context.drawImage(image, 0, 0, width, height);
-      resolve(canvas.toDataURL("image/jpeg", 0.88));
-    });
-
-    image.addEventListener("error", () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Image read failed"));
-    });
-
-    image.src = url;
-  });
-
-const normalizeAppSettings = (value: unknown): AppSettings => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-
-  const settings = value as AppSettings & { loginCoverImage?: string };
-  const loginPhotos =
-    settings.loginPhotos && typeof settings.loginPhotos === "object" && !Array.isArray(settings.loginPhotos)
-      ? Object.fromEntries(
-          Object.entries(settings.loginPhotos).filter(
-            ([key, photo]) =>
-              loginPhotoSlots.some((slot) => slot.id === key) &&
-              typeof photo === "string" &&
-              photo.startsWith("data:image/"),
-          ),
-        )
-      : {};
-  const loginPhotoTexts =
-    settings.loginPhotoTexts && typeof settings.loginPhotoTexts === "object" && !Array.isArray(settings.loginPhotoTexts)
-      ? Object.fromEntries(
-          Object.entries(settings.loginPhotoTexts)
-            .filter(([key]) => loginPhotoSlots.some((slot) => slot.id === key))
-            .map(([key, value]) => {
-              if (typeof value !== "object" || value === null || Array.isArray(value)) return [key, {}];
-              const item = value as LoginPhotoText;
-
-              return [
-                key,
-                {
-                  city: typeof item.city === "string" ? item.city : undefined,
-                  label: typeof item.label === "string" ? item.label : undefined,
-                },
-              ];
-            }),
-        )
-      : {};
-
-  if (
-    Object.keys(loginPhotos).length === 0 &&
-    typeof settings.loginCoverImage === "string" &&
-    settings.loginCoverImage.startsWith("data:image/")
-  ) {
-    return { loginPhotos: { hangzhou: settings.loginCoverImage }, loginPhotoTexts };
-  }
-
-  return { loginPhotos, loginPhotoTexts };
 };
 
 const daysUntil = (value?: string) => {
@@ -330,7 +141,8 @@ const daysUntil = (value?: string) => {
 function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   const Icon = config.icon;
   const canEdit = useContentEditAccess();
-  const [items, setItems] = useState<StoredItem[]>([]);
+  const { data: auxiliaryData, mutate } = useApi<AuxiliaryPayload>(auxiliaryEndpoint(config.kind));
+  const [items, setItems] = useState<StoredItem[]>(() => readItems(config.storageKey));
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -341,25 +153,25 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   const [isWorking, setIsWorking] = useState(false);
 
   useEffect(() => {
+    if (!auxiliaryData) return;
     let cancelled = false;
+
+    const serverItems = normalizeItems(auxiliaryData.items ?? []);
     const timer = window.setTimeout(() => {
-      void loadAuxiliaryItems(config)
-        .then((nextItems) => {
-          if (!cancelled) setItems(nextItems);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setItems(readItems(config.storageKey));
-            setStatus("读取在线内容失败，已显示本地缓存。");
-          }
-        });
+      if (cancelled) return;
+      setItems(serverItems);
+      writeItems(config.storageKey, serverItems);
+
+      void migrateLocalAuxiliaryItems(config, serverItems).then((migrated) => {
+        if (migrated && !cancelled) void mutate();
+      });
     }, 0);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [config]);
+  }, [auxiliaryData, config, mutate]);
 
   const cityOptions = useMemo(() => cities.slice().sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN")), []);
   const canSave = title.trim().length > 0;
@@ -427,9 +239,8 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
         setStatus("已保存。");
       }
 
-      // 刷新数据
-      const refreshedItems = await loadAuxiliaryItems(config);
-      setItems(refreshedItems);
+      // 刷新缓存
+      void mutate();
     } catch {
       setStatus("保存失败，请确认网络和登录状态后重试。");
     } finally {
@@ -464,6 +275,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
       writeItems(config.storageKey, nextItems);
       if (editingId === id) resetForm();
       setStatus("已删除。");
+      void mutate();
     } catch {
       setStatus("删除失败，请稍后再试。");
     } finally {
@@ -663,4 +475,3 @@ export function AnniversariesPage() {
 export function TimeCapsulePage() {
   return <MemoryToolPage config={configs.capsule} />;
 }
-

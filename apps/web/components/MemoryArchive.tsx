@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Heart,
@@ -23,16 +23,14 @@ import {
   sortMemoriesByTime,
   type Memory,
 } from "@/data/memories";
-import {
-  memoryStoreUpdatedEvent,
-  type LocalMemoryStore,
-} from "@/data/progress";
+import type { LocalMemoryStore } from "@/data/progress";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
+import { uploadImages, deleteUploaded } from "@/lib/upload";
 import { normalizeDottedDate } from "@/lib/dateFormat";
 import { useContentEditAccess, useMemoryEditAccess } from "@/lib/useContentEditAccess";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { useMemories } from "@/lib/swr";
+import { publishMemoryStore, useMemoryStore } from "@/lib/memoryStore";
 import { MemoryCitySheet, type MemoryPatchPayload } from "@/components/memories/MemoryCitySheet";
 
 type ArchiveView = "city" | "timeline";
@@ -64,6 +62,7 @@ type AddMemoryForm = {
 type PhotoDraft = {
   name: string;
   dataUrl: string;
+  file: File;
 };
 
 const defaultAddMemoryForm = (): AddMemoryForm => ({
@@ -254,6 +253,7 @@ function AddMemoryPanel({
         files.slice(0, 12).map(async (file) => ({
           name: file.name,
           dataUrl: await readCompressedImageDataUrl(file),
+          file,
         })),
       );
       setPhotos(nextPhotos);
@@ -287,6 +287,7 @@ function AddMemoryPanel({
     setError("");
     setStatus("");
 
+    let uploadedKeys: string[] = [];
     try {
       const tags = Array.from(
         new Set(
@@ -296,8 +297,15 @@ function AddMemoryPanel({
             .filter(Boolean),
         ),
       ).slice(0, 12);
-      const photoUrls = photos.map((photo) => photo.dataUrl);
       const fallbackPhoto = selectedCity.sprite;
+      let photosPayload: ReturnType<typeof memoryPhotosPayload>;
+      if (photos.length > 0) {
+        const uploaded = await uploadImages(photos.map((photo) => photo.file), "memories");
+        uploadedKeys = uploaded.map((item) => item.key);
+        photosPayload = uploaded.map((item) => ({ url: item.url, key: item.key, mimeType: item.mimeType }));
+      } else {
+        photosPayload = memoryPhotosPayload([fallbackPhoto]);
+      }
       const response = await apiFetch("/api/v1/memories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -312,7 +320,7 @@ function AddMemoryPanel({
           mood: form.mood.trim(),
           tags,
           visibility: form.visibility,
-          photos: memoryPhotosPayload(photoUrls.length > 0 ? photoUrls : [fallbackPhoto]),
+          photos: photosPayload,
         }),
       });
 
@@ -324,6 +332,7 @@ function AddMemoryPanel({
       setOpen(false);
       setStatus("回忆已保存。");
     } catch {
+      await deleteUploaded(uploadedKeys);
       setError("保存失败，请检查登录状态或稍后再试。");
     } finally {
       setIsSaving(false);
@@ -713,7 +722,7 @@ function MemoryCard({ item, compact = false, onDelete, onOpen }: Readonly<{ item
 }
 
 export default function MemoryArchive() {
-  const { data, mutate } = useMemories();
+  const { data, mutate } = useMemoryStore();
   const [view, setView] = useState<ArchiveView>("city");
   const [expandedCities, setExpandedCities] = useState<Set<string>>(new Set());
   const canEdit = useContentEditAccess();
@@ -722,19 +731,6 @@ export default function MemoryArchive() {
   const [selectedItem, setSelectedItem] = useState<MemoryItem | null>(null);
 
   const localMemories = useMemo(() => data?.memories ?? {}, [data?.memories]);
-
-  useEffect(() => {
-    const handleMemoryUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<LocalMemoryStore>).detail;
-      if (detail) mutate({ memories: detail }, { revalidate: false });
-    };
-
-    window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-
-    return () => {
-      window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    };
-  }, [mutate]);
 
   const handleDeleteMemory = async (cityId: string, memoryId: string) => {
     if (!canEdit) return;
@@ -745,7 +741,7 @@ export default function MemoryArchive() {
 
     const data = (await response.json()) as { memories: LocalMemoryStore };
     mutate({ memories: data.memories }, { revalidate: false });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: data.memories }));
+    publishMemoryStore(data.memories);
     setSelectedItem((current) => (current?.memory.id === memoryId ? null : current));
   };
 
@@ -765,7 +761,7 @@ export default function MemoryArchive() {
 
     const data = (await response.json()) as { memory?: Memory; memories: LocalMemoryStore };
     mutate({ memories: data.memories }, { revalidate: false });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: data.memories }));
+    publishMemoryStore(data.memories);
   };
 
   const handleUpdateMemory = async (cityId: string, memoryId: string, memory: MemoryPatchPayload) => {
@@ -782,7 +778,7 @@ export default function MemoryArchive() {
     const data = (await response.json()) as { memory?: Memory; memories: LocalMemoryStore };
     const nextMemories = data.memories;
     mutate({ memories: nextMemories }, { revalidate: false });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: nextMemories }));
+    publishMemoryStore(nextMemories);
     setSelectedItem((current) => {
       if (!current || current.memory.id !== memoryId) return current;
       const updatedMemory =
@@ -808,7 +804,7 @@ export default function MemoryArchive() {
     const data = (await response.json()) as { memory?: Memory; memories: LocalMemoryStore };
     const nextMemories = data.memories;
     mutate({ memories: nextMemories }, { revalidate: false });
-    window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: nextMemories }));
+    publishMemoryStore(nextMemories);
     setSelectedItem((current) => {
       if (!current || current.memory.id !== memoryId) return current;
       const updatedMemory =
@@ -915,7 +911,7 @@ export default function MemoryArchive() {
             canEdit={canEdit}
             onSaved={(memories) => {
               mutate({ memories }, { revalidate: false });
-              window.dispatchEvent(new CustomEvent(memoryStoreUpdatedEvent, { detail: memories }));
+              publishMemoryStore(memories);
             }}
           />
 

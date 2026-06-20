@@ -10,6 +10,7 @@ import { MemoryContentView, photosOfMemory } from "@/components/memories/MemoryC
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { DatePicker } from "@/components/ui/input";
 import { apiFetch } from "@/lib/apiClient";
+import { uploadImage, uploadImages, deleteUploaded } from "@/lib/upload";
 import { normalizeDottedDate } from "@/lib/dateFormat";
 import { memorySupplementLabel } from "@/lib/memorySupplement";
 import { computeMemoryEditAccess, useMemoryEditAccess } from "@/lib/useContentEditAccess";
@@ -20,8 +21,8 @@ export type MemoryPatchPayload = Omit<Partial<Memory>, "photos"> & {
 
 type PhotoDraft = {
   previewUrl: string;
-  dataUrl: string | null;
   name: string;
+  file: File;
 };
 type MemoryPanelTab = "memory" | "gallery" | "history";
 
@@ -46,10 +47,6 @@ type MemoryCitySheetProps = {
 
 const memoryTextMaxLength = 80;
 const maxPhotosPerMemory = 24;
-const memoryPhotoMaxDimension = 900;
-const memoryPhotoQuality = 0.52;
-const landmarkPhotoMaxDimension = 1280;
-const landmarkPhotoQuality = 0.76;
 
 const isObjectUrl = (url?: string | null): url is string =>
   typeof url === "string" && url.startsWith("blob:");
@@ -61,78 +58,6 @@ const revokeObjectUrl = (url?: string | null) => {
 const isBrowserImageUrl = (url?: string | null): url is string =>
   typeof url === "string" &&
   (url.startsWith("data:image/") || url.startsWith("https://") || url.startsWith("blob:"));
-
-const readBlobAsDataUrl = (blob: Blob) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.addEventListener("load", () => {
-      if (typeof reader.result === "string") resolve(reader.result);
-      else reject(new Error("Image read failed"));
-    });
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("Image read failed")));
-    reader.readAsDataURL(blob);
-  });
-
-const readFileAsDataUrl = (file: File) => readBlobAsDataUrl(file);
-
-const loadImageFile = (file: File) =>
-  new Promise<HTMLImageElement>((resolve, reject) => {
-    const imageUrl = URL.createObjectURL(file);
-    const image = new window.Image();
-
-    image.addEventListener(
-      "load",
-      () => {
-        URL.revokeObjectURL(imageUrl);
-        resolve(image);
-      },
-      { once: true },
-    );
-    image.addEventListener(
-      "error",
-      () => {
-        URL.revokeObjectURL(imageUrl);
-        reject(new Error("Image load failed"));
-      },
-      { once: true },
-    );
-    image.src = imageUrl;
-  });
-
-async function readCompressedImageDataUrl(
-  file: File,
-  {
-    maxDimension,
-    quality,
-  }: Readonly<{
-    maxDimension: number;
-    quality: number;
-  }>,
-) {
-  if (file.type === "image/svg+xml") return readFileAsDataUrl(file);
-
-  const image = await loadImageFile(file);
-  const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext("2d");
-  if (!context) return readFileAsDataUrl(file);
-
-  context.fillStyle = "#FAFBF7";
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, 0, 0, width, height);
-
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", quality);
-  });
-
-  return blob ? readBlobAsDataUrl(blob) : readFileAsDataUrl(file);
-}
 
 const revokePhotoDrafts = (photos: PhotoDraft[]) => {
   photos.forEach((photo) => revokeObjectUrl(photo.previewUrl));
@@ -209,14 +134,12 @@ export function MemoryCitySheet({
   const [landmarkError, setLandmarkError] = useState("");
   const [landmarkSaving, setLandmarkSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<MemoryPanelTab>("memory");
-  const [isReadingPhoto, setIsReadingPhoto] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [annotatingMemoryId, setAnnotatingMemoryId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteError, setNoteError] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const photoDraftsRef = useRef<PhotoDraft[]>([]);
-  const photoReadTokenRef = useRef(0);
   const mountedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const landmarkInputRef = useRef<HTMLInputElement>(null);
@@ -234,7 +157,6 @@ export function MemoryCitySheet({
     ? canEditFields
       ? Boolean(normalizedDate) &&
         trimmedText.length > 0 &&
-        !isReadingPhoto &&
         !photoError &&
         !isSaving
       : canAnnotate &&
@@ -267,7 +189,6 @@ export function MemoryCitySheet({
 
   const resetForm = useCallback(
     (revokePhoto: boolean) => {
-      photoReadTokenRef.current += 1;
       setTitle("");
       setPlaceName("");
       setDate("");
@@ -283,7 +204,6 @@ export function MemoryCitySheet({
       setSaveError("");
       setCoverError("");
       setDeleteError("");
-      setIsReadingPhoto(false);
       setEditingMemory(null);
       if (revokePhoto) revokePhotoDrafts(photoDraftsRef.current);
       photoDraftsRef.current = [];
@@ -295,7 +215,6 @@ export function MemoryCitySheet({
       setDate,
       setDeleteError,
       setEditingMemory,
-      setIsReadingPhoto,
       setMood,
       setPartnerNote,
       setPhotoDrafts,
@@ -317,7 +236,6 @@ export function MemoryCitySheet({
 
     return () => {
       mountedRef.current = false;
-      photoReadTokenRef.current += 1;
       revokePhotoDrafts(photoDraftsRef.current);
     };
   }, []);
@@ -362,7 +280,6 @@ export function MemoryCitySheet({
     const recordAccess = computeMemoryEditAccess(record);
     if (!isAdmin || !localMemoryIds.has(record.id) || !recordAccess.canEdit) return;
 
-    photoReadTokenRef.current += 1;
     revokePhotoDrafts(photoDraftsRef.current);
     resetAnnotation();
     photoDraftsRef.current = [];
@@ -453,7 +370,7 @@ export function MemoryCitySheet({
     }
   };
 
-  const handlePickFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePickFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin || !canEditFields) {
       event.target.value = "";
       setPhotoError("请先登录后再选择照片");
@@ -465,43 +382,17 @@ export function MemoryCitySheet({
       .slice(0, maxPhotosPerMemory);
     if (files.length === 0) return;
 
-    const readToken = photoReadTokenRef.current + 1;
-    photoReadTokenRef.current = readToken;
     revokePhotoDrafts(photoDraftsRef.current);
     const nextPhotoDrafts = files.map((file) => ({
       previewUrl: URL.createObjectURL(file),
-      dataUrl: null,
       name: file.name,
+      file,
     }));
 
     photoDraftsRef.current = nextPhotoDrafts;
     setPhotoDrafts(nextPhotoDrafts);
     setPhotoError("");
     setSaveError("");
-    setIsReadingPhoto(true);
-
-    try {
-      const dataUrls = await Promise.all(
-        files.map((file) =>
-          readCompressedImageDataUrl(file, {
-            maxDimension: memoryPhotoMaxDimension,
-            quality: memoryPhotoQuality,
-          }),
-        ),
-      );
-      if (!mountedRef.current || photoReadTokenRef.current !== readToken) return;
-      const nextReadyDrafts = nextPhotoDrafts.map((photo, index) => ({
-        ...photo,
-        dataUrl: dataUrls[index],
-      }));
-      photoDraftsRef.current = nextReadyDrafts;
-      setPhotoDrafts(nextReadyDrafts);
-    } catch {
-      if (!mountedRef.current || photoReadTokenRef.current !== readToken) return;
-      setPhotoError("图片读取失败，请重新选择");
-    } finally {
-      if (mountedRef.current && photoReadTokenRef.current === readToken) setIsReadingPhoto(false);
-    }
   };
 
   const handlePolishMemory = async () => {
@@ -549,15 +440,13 @@ export function MemoryCitySheet({
     setLandmarkSaving(true);
     setLandmarkError("");
 
+    let uploadedKey = "";
     try {
-      await onSaveLandmark(
-        city.id,
-        await readCompressedImageDataUrl(file, {
-          maxDimension: landmarkPhotoMaxDimension,
-          quality: landmarkPhotoQuality,
-        }),
-      );
+      const uploaded = await uploadImage(file, "city-assets");
+      uploadedKey = uploaded.key;
+      await onSaveLandmark(city.id, uploaded.url);
     } catch {
+      await deleteUploaded([uploadedKey]);
       setLandmarkError("地标图片保存失败，请重新选择");
     } finally {
       if (mountedRef.current) setLandmarkSaving(false);
@@ -597,6 +486,7 @@ export function MemoryCitySheet({
     setIsSaving(true);
     setSaveError("");
 
+    let uploadedKeys: string[] = [];
     try {
       if (editingMemory && canAnnotate && !canEditFields) {
         await onUpdate(city.id, editingMemory.id, { partnerNote: partnerNote.trim() });
@@ -607,7 +497,9 @@ export function MemoryCitySheet({
 
       if (!normalizedDate) return;
 
-      const photos = photoDrafts.map((photo) => photo.dataUrl).filter((photo): photo is string => Boolean(photo));
+      const uploaded = await uploadImages(photoDrafts.map((photo) => photo.file), "memories");
+      uploadedKeys = uploaded.map((item) => item.key);
+      const photos = uploaded.map((item) => item.url);
       const nextTags = Array.from(
         new Set(
           tags
@@ -636,10 +528,20 @@ export function MemoryCitySheet({
       };
 
       if (editingMemory) {
-        await onUpdate(city.id, editingMemory.id, {
-          ...nextMemory,
-          photos: memoryPhotosPayload(nextMemory.photos ?? [nextMemory.image]),
-        });
+        const patch: MemoryPatchPayload = {
+          title: nextMemory.title,
+          placeName: nextMemory.placeName,
+          date: nextMemory.date,
+          image: nextMemory.image,
+          text: nextMemory.text,
+          mood: nextMemory.mood,
+          tags: nextMemory.tags,
+          visibility: nextMemory.visibility,
+        };
+        if (uploaded.length > 0) {
+          patch.photos = memoryPhotosPayload(nextMemory.photos ?? [nextMemory.image]);
+        }
+        await onUpdate(city.id, editingMemory.id, patch);
       } else {
         await onSave(city.id, {
           id: `${city.id}-local`,
@@ -660,6 +562,7 @@ export function MemoryCitySheet({
       resetForm(true);
       setFormOpen(false);
     } catch {
+      await deleteUploaded(uploadedKeys);
       setSaveError("保存失败，请稍后再试");
     } finally {
       if (mountedRef.current) setIsSaving(false);
@@ -1305,11 +1208,6 @@ export function MemoryCitySheet({
                         <span className="mt-2 block text-xs text-[#5A6670]/58">
                           已选择 {photoDrafts.length} 张
                         </span>
-                        {isReadingPhoto && (
-                          <span className="absolute inset-0 grid place-items-center bg-[#FAFBF7]/72 text-xs text-[#5A6670]/70">
-                            读取中
-                          </span>
-                        )}
                       </span>
                     ) : (
                       <>

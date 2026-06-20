@@ -212,7 +212,57 @@ func Migrate() {
 		log.Fatal("数据库迁移失败:", err)
 	}
 
+	ensureColumn("memories", "cover_photo_id", "TEXT")
 	ensureColumn("memories", "partner_note_author_id", "TEXT")
+	ensureColumn("anniversary_cards", "cover_photo_id", "TEXT")
+
+	// 多用户和商业化扩展
+	ensureColumn("users", "role", "TEXT DEFAULT 'member'")
+	ensureColumn("spaces", "status", "TEXT DEFAULT 'active'")
+	ensureColumn("spaces", "tier", "TEXT DEFAULT 'free'")
+	ensureColumn("spaces", "purchased_at", "DATETIME")
+	ensureColumn("spaces", "storage_used_bytes", "INTEGER DEFAULT 0")
+
+	// 创建索引
+	createIndex("idx_users_space_role", "users", "space_id, role")
+	createIndex("idx_spaces_status", "spaces", "status")
+
+	// 创建管理员表
+	createTableIfNotExists("admins", `
+		id TEXT PRIMARY KEY,
+		username TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		display_name TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	`)
+
+	// 创建订单表
+	createTableIfNotExists("orders", `
+		id TEXT PRIMARY KEY,
+		space_id TEXT NOT NULL,
+		amount REAL NOT NULL,
+		currency TEXT DEFAULT 'CNY',
+		status TEXT DEFAULT 'pending',
+		payment_method TEXT,
+		paid_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (space_id) REFERENCES spaces(id)
+	`)
+	createIndex("idx_orders_space", "orders", "space_id")
+	createIndex("idx_orders_status", "orders", "status, created_at")
+
+	// 创建审计日志表
+	createTableIfNotExists("audit_logs", `
+		id TEXT PRIMARY KEY,
+		admin_id TEXT NOT NULL,
+		action TEXT NOT NULL,
+		target_type TEXT,
+		target_id TEXT,
+		details TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (admin_id) REFERENCES admins(id)
+	`)
+	createIndex("idx_audit_logs_admin", "audit_logs", "admin_id, created_at")
 }
 
 func ensureColumn(tableName string, columnName string, definition string) {
@@ -239,5 +289,19 @@ func ensureColumn(tableName string, columnName string, definition string) {
 
 	if _, err := DB.Exec(`ALTER TABLE ` + tableName + ` ADD COLUMN ` + columnName + ` ` + definition); err != nil {
 		log.Fatal("数据库字段迁移失败:", err)
+	}
+}
+
+func createIndex(indexName string, tableName string, columns string) {
+	_, err := DB.Exec(`CREATE INDEX IF NOT EXISTS ` + indexName + ` ON ` + tableName + `(` + columns + `)`)
+	if err != nil {
+		log.Fatal("创建索引失败:", err)
+	}
+}
+
+func createTableIfNotExists(tableName string, schema string) {
+	_, err := DB.Exec(`CREATE TABLE IF NOT EXISTS ` + tableName + ` (` + schema + `)`)
+	if err != nil {
+		log.Fatal("创建表失败:", err)
 	}
 }

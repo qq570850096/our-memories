@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ApiBaseScript } from "@/app/api-base-script";
+import { ApiCacheProvider } from "@/lib/apiCache";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ export default function RootLayout({
     >
       <body className="flex flex-col">
         <ApiBaseScript />
-        {children}
+        <ApiCacheProvider>{children}</ApiCacheProvider>
       </body>
     </html>
   );

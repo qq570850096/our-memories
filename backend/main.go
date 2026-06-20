@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"our-memories-backend/config"
@@ -19,6 +21,7 @@ func main() {
 	r := gin.Default()
 
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.BodySizeLimit(64 << 20)) // 64MB 上限：图片走前端直传 OSS，本服务只收 JSON（含备份导入）
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true})
@@ -28,6 +31,25 @@ func main() {
 	{
 		api.POST("/auth/login", handlers.Login)
 		api.POST("/auth/refresh", handlers.Refresh)
+
+		// 管理员路由
+		api.POST("/admin/login", handlers.AdminLogin)
+		admin := api.Group("/admin")
+		admin.Use(middleware.AdminAuthMiddleware())
+		{
+			admin.GET("/spaces", handlers.GetSpaces)
+			admin.GET("/spaces/:id", handlers.GetSpaceDetail)
+			admin.PUT("/spaces/:id/status", handlers.UpdateSpaceStatus)
+			admin.DELETE("/spaces/:id", handlers.DeleteSpace)
+
+			admin.GET("/users", handlers.GetUsers)
+			admin.PUT("/users/:id/role", handlers.UpdateUserRole)
+
+			admin.GET("/orders", handlers.GetOrders)
+			admin.POST("/orders/:id/confirm", handlers.ConfirmOrder)
+
+			admin.GET("/stats", handlers.GetStats)
+		}
 
 		auth := api.Group("")
 		auth.Use(middleware.AuthMiddleware())
@@ -50,6 +72,8 @@ func main() {
 			auth.DELETE("/anniversary-cards/:id", handlers.DeleteAnniversaryCard)
 
 			auth.POST("/upload", handlers.UploadImage)
+			auth.POST("/upload/presign", handlers.PresignUpload)
+			auth.DELETE("/upload", handlers.DeleteUpload)
 
 			auth.GET("/settings", handlers.GetSettings)
 			auth.PUT("/settings/:key", handlers.UpdateSetting)
@@ -91,7 +115,34 @@ func main() {
 		}
 	}
 
+	// 静态文件服务：管理后台
+	adminDistPath := filepath.Join(".", "public", "admin")
+	if stat, err := os.Stat(adminDistPath); err == nil && stat.IsDir() {
+		log.Printf("Serving admin panel from %s at /admin", adminDistPath)
+
+		// 静态资源（CSS, JS, 图片等）
+		r.Static("/admin/_next", filepath.Join(adminDistPath, "_next"))
+		r.StaticFile("/admin/favicon.ico", filepath.Join(adminDistPath, "favicon.ico"))
+
+		// SPA 路由：所有 /admin/* 路径都返回 index.html
+		adminGroup := r.Group("/admin")
+		{
+			adminGroup.GET("/*path", func(c *gin.Context) {
+				indexPath := filepath.Join(adminDistPath, "index.html")
+				if _, err := os.Stat(indexPath); err == nil {
+					c.File(indexPath)
+				} else {
+					c.JSON(404, gin.H{"error": "Admin panel index.html not found"})
+				}
+			})
+		}
+	} else {
+		log.Printf("Admin panel not found at %s, skipping static file serving", adminDistPath)
+	}
+
 	log.Printf("Server starting on port %s", config.Get().Port)
+	log.Printf("API endpoints: http://localhost:%s/api/v1", config.Get().Port)
+	log.Printf("Admin panel: http://localhost:%s/admin", config.Get().Port)
 	if err := r.Run(":" + config.Get().Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}

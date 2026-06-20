@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"our-memories-backend/cache"
 	"our-memories-backend/db"
+	"our-memories-backend/storage"
 	"our-memories-backend/utils"
 )
 
@@ -74,12 +76,24 @@ func readCityAssets(spaceID string) (map[string]string, error) {
 }
 
 func GetCityAssets(c *gin.Context) {
-	assets, err := readCityAssets(c.GetString("spaceID"))
+	spaceID := c.GetString("spaceID")
+	cacheKey := fmt.Sprintf("city-assets:%s", spaceID)
+	if cached, found := cache.Get(cacheKey); found {
+		utils.Success(c, gin.H{"assets": cached})
+		return
+	}
+
+	assets, err := readCityAssets(spaceID)
 	if err != nil {
 		utils.Error(c, 500, "Failed to fetch city assets")
 		return
 	}
+	cache.Set(cacheKey, assets, 5*time.Minute)
 	utils.Success(c, gin.H{"assets": assets})
+}
+
+func clearCityAssetsCache(spaceID string) {
+	cache.Delete(fmt.Sprintf("city-assets:%s", spaceID))
 }
 
 func UpdateCityAsset(c *gin.Context) {
@@ -97,10 +111,20 @@ func UpdateCityAsset(c *gin.Context) {
 		utils.Error(c, 500, "Failed to update city asset")
 		return
 	}
-	assets[req.CityID] = req.Image
+	previous := assets[req.CityID]
+	image, err := uploadDataURL(spaceID, "city-assets", req.Image)
+	if err != nil {
+		utils.Error(c, 500, "Failed to upload city asset")
+		return
+	}
+	assets[req.CityID] = image
 	if err := writeSettingJSON(spaceID, cityAssetsSettingKey, assets); err != nil {
 		utils.Error(c, 500, "Failed to update city asset")
 		return
+	}
+	clearCityAssetsCache(spaceID)
+	if previous != "" && previous != image {
+		storage.DeleteObjectByURL(previous)
 	}
 	utils.Success(c, gin.H{"assets": assets})
 }
@@ -119,10 +143,15 @@ func DeleteCityAsset(c *gin.Context) {
 		utils.Error(c, 500, "Failed to delete city asset")
 		return
 	}
+	previous := assets[req.CityID]
 	delete(assets, req.CityID)
 	if err := writeSettingJSON(spaceID, cityAssetsSettingKey, assets); err != nil {
 		utils.Error(c, 500, "Failed to delete city asset")
 		return
+	}
+	clearCityAssetsCache(spaceID)
+	if previous != "" {
+		storage.DeleteObjectByURL(previous)
 	}
 	utils.Success(c, gin.H{"assets": assets})
 }
@@ -164,8 +193,15 @@ func UpdateLoginPhoto(c *gin.Context) {
 		utils.Error(c, 500, "Failed to update login photo")
 		return
 	}
+	previousPhoto := ""
 	if req.Image != "" {
-		store.Photos[req.SlotID] = req.Image
+		previousPhoto = store.Photos[req.SlotID]
+		image, err := uploadDataURL(spaceID, "login-photos", req.Image)
+		if err != nil {
+			utils.Error(c, 500, "Failed to upload login photo")
+			return
+		}
+		store.Photos[req.SlotID] = image
 	}
 	if req.Text != nil {
 		store.Texts[req.SlotID] = *req.Text
@@ -173,6 +209,9 @@ func UpdateLoginPhoto(c *gin.Context) {
 	if err := writeSettingJSON(spaceID, loginPhotosSettingKey, store); err != nil {
 		utils.Error(c, 500, "Failed to update login photo")
 		return
+	}
+	if previousPhoto != "" && previousPhoto != store.Photos[req.SlotID] {
+		storage.DeleteObjectByURL(previousPhoto)
 	}
 	utils.Success(c, store)
 }
@@ -216,14 +255,19 @@ func DeleteLoginPhoto(c *gin.Context) {
 		utils.Error(c, 500, "Failed to delete login photo")
 		return
 	}
+	previousPhoto := ""
 	if req.Kind == "text" {
 		delete(store.Texts, req.SlotID)
 	} else {
+		previousPhoto = store.Photos[req.SlotID]
 		delete(store.Photos, req.SlotID)
 	}
 	if err := writeSettingJSON(spaceID, loginPhotosSettingKey, store); err != nil {
 		utils.Error(c, 500, "Failed to delete login photo")
 		return
+	}
+	if previousPhoto != "" {
+		storage.DeleteObjectByURL(previousPhoto)
 	}
 	utils.Success(c, store)
 }

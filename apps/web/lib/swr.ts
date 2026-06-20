@@ -14,14 +14,19 @@ export function useApi<T>(
   options?: SWRConfiguration<T>
 ) {
   return useSWR<T>(path, defaultFetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60000,
+    // 切页走缓存；切回标签页 / 重连时后台刷新（节流 5 分钟），软导航不会触发 focus。
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    revalidateIfStale: false,
+    dedupingInterval: 300000,
+    focusThrottleInterval: 300000,
+    keepPreviousData: true,
     ...options,
   });
 }
 
 export function useMemories() {
   return useApi<{ memories: LocalMemoryStore }>("/api/v1/memories", {
-    revalidateOnMount: true,
+    revalidateIfStale: false,
   });
 }

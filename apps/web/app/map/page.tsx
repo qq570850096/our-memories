@@ -1,8 +1,6 @@
 import Image from "next/image";
-import Link from "next/link";
 import {
   ChevronUp,
-  Heart,
 } from "lucide-react";
 import ChinaMap, { SouthChinaSeaInset } from "@/components/ChinaMap";
 import BackToLoginButton from "@/components/BackToLoginButton";

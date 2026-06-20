@@ -1,4 +1,5 @@
 import { clearSession, readSession, updateAccessToken, writeSession } from "@/lib/authStore";
+import { clearApiCache } from "@/lib/apiCacheStorage";
 
 const defaultApiBaseUrl = "http://localhost:8080";
 
@@ -85,6 +86,6 @@ export async function login(spaceCode: string, password: string, userId = "me") 
 }
 
 export async function logout() {
-  await apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(() => null);
+  clearApiCache();
   clearSession();
 }

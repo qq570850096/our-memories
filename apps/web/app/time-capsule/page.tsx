@@ -1,14 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, X, Archive, Trash2, Edit } from "lucide-react";
+import { type ChangeEvent, useRef, useState } from "react";
+import { Plus, X, Archive, Trash2, Edit, ImagePlus } from "lucide-react";
+import { LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { MemoryPageShell } from "@/components/MemoryNav";
 import { Button } from "@/components/ui/button";
-import { DatePicker, Input, Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiJson } from "@/lib/apiClient";
 import { useContentEditAccess } from "@/lib/useContentEditAccess";
 import { readSession } from "@/lib/authStore";
+import { useApi } from "@/lib/swr";
+import { deleteUploaded, uploadImages } from "@/lib/upload";
+
+type CapsulePhoto = {
+  id?: string;
+  url?: string;
+  key?: string;
+  mimeType?: string;
+  sortOrder?: number;
+};
 
 type TimeCapsule = {
   id: string;
@@ -18,7 +29,11 @@ type TimeCapsule = {
   isOpened: boolean;
   createdById: string;
   createdAt: string;
+  photos?: CapsulePhoto[];
 };
+
+const emptyForm = { title: "", openDate: "", content: "", photos: [] as string[] };
+const photoPayload = (photos: string[]) => photos.filter(Boolean).map((url) => ({ url, key: "", mimeType: "image/jpeg" }));
 
 function daysUntil(dateStr: string) {
   const target = new Date(dateStr);
@@ -34,32 +49,31 @@ function getTodayString() {
 }
 
 export default function TimeCapsule() {
-  const [capsules, setCapsules] = useState<TimeCapsule[]>([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ title: "", openDate: "", content: "" });
-  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(emptyForm);
+  const [photoKeys, setPhotoKeys] = useState<string[]>([]);
+  const [photosDirty, setPhotosDirty] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [status, setStatus] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = useContentEditAccess();
   const session = readSession();
-
-  const load = async () => {
-    setLoading(true);
-    const data = await apiJson<{ timeCapsules: TimeCapsule[] }>("/api/v1/time-capsules");
-    setCapsules(data.timeCapsules || []);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
+  const { data, isLoading, mutate } = useApi<{ timeCapsules: TimeCapsule[] }>("/api/v1/time-capsules");
+  const capsules = data?.timeCapsules ?? [];
 
   const openDialog = (capsule?: TimeCapsule) => {
+    setStatus("");
+    setPhotoKeys([]);
+    setPhotosDirty(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (capsule) {
+      const photos = (capsule.photos ?? []).flatMap((photo) => (photo.url ? [photo.url] : []));
       setEditingId(capsule.id);
-      setForm({ title: capsule.title, openDate: capsule.openDate, content: capsule.content });
+      setForm({ title: capsule.title, openDate: capsule.openDate, content: capsule.content, photos });
     } else {
       setEditingId(null);
-      setForm({ title: "", openDate: "", content: "" });
+      setForm(emptyForm);
     }
     setOpen(true);
   };
@@ -67,12 +81,38 @@ export default function TimeCapsule() {
   const closeDialog = () => {
     setOpen(false);
     setEditingId(null);
-    setForm({ title: "", openDate: "", content: "" });
+    setForm(emptyForm);
+    setPhotoKeys([]);
+    setPhotosDirty(false);
+    setStatus("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const pickPhotos = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).slice(0, 6);
+    if (files.length === 0) return;
+    const previousKeys = photoKeys;
+    setWorking(true);
+    setStatus("正在上传照片...");
+    try {
+      const uploaded = await uploadImages(files, "time-capsules");
+      setForm((current) => ({ ...current, photos: uploaded.map((item) => item.url) }));
+      setPhotoKeys(uploaded.map((item) => item.key));
+      setPhotosDirty(true);
+      if (previousKeys.length > 0) void deleteUploaded(previousKeys);
+      setStatus("");
+    } catch {
+      setStatus("照片上传失败，请重新选择。");
+    } finally {
+      setWorking(false);
+      event.target.value = "";
+    }
   };
 
   const save = async () => {
+    if (working) return;
     if (!form.title.trim() || !form.openDate || !form.content.trim()) {
-      alert("请填写所有必填项");
+      setStatus("请填写所有必填项。");
       return;
     }
 
@@ -81,31 +121,50 @@ export default function TimeCapsule() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (selectedDate <= today) {
-      alert("开启日期必须是今天之后");
+      setStatus("开启日期必须是今天之后。");
       return;
     }
 
-    if (editingId) {
-      // 编辑模式 - 需要后端支持PATCH
-      await apiJson(`/api/v1/time-capsules/${editingId}`, {
-        method: "PATCH",
-        body: JSON.stringify(form),
-      });
-    } else {
-      // 创建模式
-      await apiJson("/api/v1/time-capsules", {
-        method: "POST",
-        body: JSON.stringify({ ...form, photos: [] }),
-      });
+    const payload: {
+      title: string;
+      openDate: string;
+      content: string;
+      photos?: ReturnType<typeof photoPayload>;
+    } = {
+      title: form.title.trim(),
+      openDate: form.openDate,
+      content: form.content.trim(),
+    };
+    if (!editingId || photosDirty) payload.photos = photoPayload(form.photos);
+
+    setWorking(true);
+    setStatus("");
+    try {
+      if (editingId) {
+        await apiJson(`/api/v1/time-capsules/${editingId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await apiJson("/api/v1/time-capsules", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      closeDialog();
+      void mutate();
+    } catch {
+      await deleteUploaded(photoKeys);
+      setStatus("保存失败，请稍后再试。");
+    } finally {
+      setWorking(false);
     }
-    closeDialog();
-    void load();
   };
 
   const deleteCapsule = async (id: string) => {
     if (!confirm("确定删除这个时光胶囊吗？")) return;
     await apiJson(`/api/v1/time-capsules/${id}`, { method: "DELETE" });
-    void load();
+    void mutate();
   };
 
   return (
@@ -160,8 +219,23 @@ export default function TimeCapsule() {
                 required
                 className="transition-all duration-200 focus:ring-2 focus:ring-[#E8B8C2]"
               />
-              <Button className="w-full transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]" onClick={save}>
-                {editingId ? "保存" : "埋下胶囊"}
+              <input ref={fileInputRef} className="hidden" type="file" accept="image/*" multiple onChange={pickPhotos} disabled={!isAdmin || working} />
+              <Button variant="secondary" className="w-full" onClick={() => fileInputRef.current?.click()} disabled={!isAdmin || working}>
+                <ImagePlus className="h-4 w-4" />
+                {form.photos.length ? `已选择 ${form.photos.length} 张照片` : "选择照片"}
+              </Button>
+              {form.photos.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {form.photos.map((photo, index) => (
+                    <div key={`${photo}-${index}`} className="relative aspect-square overflow-hidden rounded-[6px] border border-[#D8DDD8] bg-[#D6E8F0]">
+                      <LocalPrivacyImg className="h-full w-full object-cover" src={photo} alt={`时光胶囊照片 ${index + 1}`} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {status && <p className="rounded-[7px] border border-[#D8DDD8]/70 bg-white/42 px-3 py-2 text-xs leading-5 text-[#5A6670]/66">{status}</p>}
+              <Button className="w-full transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]" onClick={save} disabled={!isAdmin || working}>
+                {working ? "处理中" : editingId ? "保存" : "埋下胶囊"}
               </Button>
             </div>
           </div>
@@ -169,7 +243,7 @@ export default function TimeCapsule() {
       )}
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {loading ? (
+        {isLoading ? (
           // 骨架屏
           <>
             {[1, 2, 3].map((i) => (
@@ -189,6 +263,7 @@ export default function TimeCapsule() {
             const days = daysUntil(cap.openDate);
             const isLocked = days > 0;
             const canEdit = cap.createdById === session?.user?.id && isLocked; // 只有未开启时创建人可编辑
+            const photos = (cap.photos ?? []).flatMap((photo) => (photo.url ? [photo.url] : []));
 
             return (
               <div
@@ -223,6 +298,15 @@ export default function TimeCapsule() {
                   </div>
                 ) : (
                   <div>
+                    {photos.length > 0 && (
+                      <div className="mb-2 grid grid-cols-3 gap-2">
+                        {photos.map((photo, index) => (
+                          <div key={`${cap.id}-photo-${index}`} className="relative aspect-square overflow-hidden rounded bg-[#D6E8F0]">
+                            <LocalPrivacyImg className="h-full w-full object-cover" src={photo} alt={`${cap.title} 照片 ${index + 1}`} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="rounded bg-yellow-50 p-3 text-sm mb-2">
                       <p className="whitespace-pre-wrap">{cap.content}</p>
                     </div>
@@ -237,4 +321,3 @@ export default function TimeCapsule() {
     </MemoryPageShell>
   );
 }
-

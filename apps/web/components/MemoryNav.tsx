@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   Archive,
   BookOpen,
   CalendarDays,
@@ -108,7 +107,6 @@ export function MemoryPageShell({
   active: MemoryNavKey;
   children: ReactNode;
 }>) {
-  const current = navItems.find((item) => item.key === active);
   const navRef = useRef<HTMLDivElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
 

@@ -10,6 +10,7 @@ import (
 type Claims struct {
 	UserID  string `json:"userId"`
 	SpaceID string `json:"spaceId"`
+	IsAdmin bool   `json:"isAdmin,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -52,4 +53,17 @@ func VerifyToken(tokenString string) (*Claims, error) {
 	}
 
 	return nil, jwt.ErrSignatureInvalid
+}
+
+func GenerateAdminToken(adminID string) (string, error) {
+	claims := Claims{
+		UserID:  adminID,
+		IsAdmin: true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.Get().JWTSecret))
 }

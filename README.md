@@ -1,177 +1,211 @@
-# 我们的回忆
+# Our Memories - 情侣回忆录
 
-“我们的回忆”是一个给两个人使用的私密情侣空间。它把地图、照片、纪念日、地点收藏、悄悄话和时光胶囊放在同一个空间里，让共同生活的轨迹可以被记录、整理和回看。
+> 一个为情侣设计的私密回忆记录应用，支持照片、日记、纪念日、时光胶囊等功能。现已升级为商业化版本，支持管理后台和订阅管理。
 
-项目采用在线优先架构：Web 前端连接自托管后端，数据保存在自己的 SQLite 数据库中，图片可选择继续留在本地 data URL，或接入 S3/OSS/R2 等兼容对象存储。
+## ✨ 核心功能
 
-## 产品功能
+### 用户端
+- 📸 **回忆相册** - 按城市分类的照片和文字记录
+- 🎂 **纪念日卡片** - 重要日期提醒和回顾
+- ⏰ **时光胶囊** - 未来开启的惊喜
+- 💬 **悄悄话** - 双人私密聊天
+- 🗺️ **足迹地图** - 可视化去过的地方
+- 🎨 **自定义主题** - 个性化登录页和城市封面
 
-- 私密双人空间：通过空间码、四位密码和双人身份进入，只属于两个人的内容空间。
-- 地图回忆：在中国地图上点亮去过的城市，按城市查看回忆、照片、地点、心情、标签和对方备注。
-- 回忆归档：支持新增、编辑、删除回忆，记录日期、城市、地点、正文、多图和可见范围。
-- 纪念日墙：保存重要日期，支持置顶、每年重复、照片和备注，用来管理节日、相识日、旅行日等特殊时刻。
-- 地点收藏：提前收好想一起去的地方，和地图、城市数据一起形成旅行愿望清单。
-- 悄悄话：两个人可以创建私密话题并持续回复，适合放只想慢慢说的话。
-- 时光胶囊：写给未来的内容可以设置开启日期，未到期时对非创建者隐藏正文。
-- 登录照片墙：可配置登录页展示的城市照片和文案，让入口也带有两个人的仪式感。
-- 旅行攻略草稿：后端提供旅行攻略、草稿、接受草稿等接口，便于后续把 AI 或人工整理的行程沉淀为正式攻略。
-- AI 文案润色：配置 DeepSeek API 后，可对回忆文本进行润色；未配置时会原样返回，不影响本地使用。
-- 备份导入导出：后端提供备份接口，便于迁移或保留空间数据。
-- 多端壳子：仓库包含 Next.js Web、Taro 小程序、Capacitor Android 和 Electron 桌面端基础工程。
+### 管理后台（新增）
+- 👥 **空间管理** - 查看、暂停、删除用户空间
+- 🔐 **用户管理** - 角色分配和权限控制
+- 💰 **订单管理** - 一次性买断订单处理
+- 📊 **统计面板** - 运营数据总览
+- 📝 **审计日志** - 管理员操作记录
 
-## 项目结构
+## 🚀 快速开始
 
-- `apps/web`：Next.js + React Web 前端，默认端口 `3002`。
-- `backend`：Go + Gin API 服务，使用 SQLite 存储，默认端口 `8080`。
-- `apps/miniprogram`：Taro React 微信小程序工程。
-- `apps/mobile`：Capacitor Android 工程。
-- `apps/desktop`：Electron 桌面端工程。
-- `packages/shared`：多端共享类型、DTO 和工具。
-- `docs`：部署、APK、数据库等补充文档。
+### 前置要求
+- Go 1.21+
+- Node.js 18+
+- npm 或 yarn
 
-## 配置方法
-
-### 1. 准备环境
-
-- Node.js 20 或更高版本
-- npm
-- Go 1.22 或更高版本
-- 可选：Docker，用于容器化运行后端
-- 可选：S3/OSS/R2 兼容对象存储，用于保存上传图片
-
-### 2. 安装前端依赖
-
+### 1. 克隆项目
 ```bash
-npm install
+git clone <repository-url>
+cd our-memories
 ```
 
-### 3. 配置并启动后端
-
-后端会读取 `backend/.env`。本地开发可以先复制示例配置：
-
+### 2. 配置后端
 ```bash
 cd backend
 cp .env.example .env
-go mod tidy
-go run main.go
+# 编辑 .env，修改 JWT_SECRET（必须！）
+go mod download
 ```
 
-Windows PowerShell 可以使用：
-
-```powershell
-cd backend
-Copy-Item .env.example .env
-go mod tidy
-go run main.go
-```
-
-后端启动后可访问：
-
-```text
-http://localhost:8080/health
-```
-
-### 4. 启动 Web 前端
-
-另开一个终端，在仓库根目录运行：
-
+### 3. 启动后端（自动迁移数据库）
 ```bash
-npm run dev:web
+go run main.go
+# 输出: Server starting on port 8080
 ```
 
-Web 前端默认访问：
-
-```text
-http://localhost:3002
-```
-
-前端默认连接 `http://localhost:8080`。如果后端部署在其它地址，请设置：
-
+### 4. 创建管理员（首次）
 ```bash
-NEXT_PUBLIC_API_BASE_URL=https://your-api.example.com
+go run cmd/create_admin.go \
+  -username=admin \
+  -password=YourSecurePassword \
+  -name="Admin User"
 ```
 
-### 5. 默认登录信息
-
-本地后端默认会在空数据库中自动初始化一个空间：
-
-```text
-空间码：our-space-2026
-密码：1234
-身份：me / ta
+### 5. 启动用户前端
+```bash
+cd ../apps/web
+npm install
+npm run dev
+# 访问 http://localhost:3002
 ```
 
-登录页第一步输入空间密码，第二步选择身份后再次输入密码即可进入。
+### 6. 启动管理后台
+```bash
+cd ../apps/admin
+npm install
+npm run dev
+# 访问 http://localhost:3003
+```
 
-## 后端环境变量
+## 📚 详细文档
 
-常用配置位于 `backend/.env.example`：
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - 完整部署指南
+- [SAME_PORT_DEPLOYMENT.md](./SAME_PORT_DEPLOYMENT.md) - 同端口部署指南（前后端同域）
+- [SUMMARY.md](./SUMMARY.md) - 项目修复与升级总结
+- [计划文档](./.claude/plans/elegant-giggling-flame.md) - 实现计划
 
-```text
+## 🔒 安全修复
+
+本次更新修复了以下安全漏洞：
+
+✅ **权限检查缺失**
+- Anniversary Card 编辑/删除权限
+- Time Capsule 编辑/删除权限
+- Whisper 删除权限
+
+✅ **时区逻辑错误**
+- Time Capsule 开启日期判断统一使用 UTC
+
+✅ **JWT Secret 不安全**
+- 禁止使用默认值启动
+
+## 🏗️ 技术栈
+
+### 后端
+- **语言**: Go 1.21
+- **框架**: Gin
+- **数据库**: SQLite（生产可升级为 PostgreSQL）
+- **认证**: JWT
+- **存储**: 阿里云 OSS / AWS S3
+
+### 前端
+- **框架**: Next.js 16 (App Router)
+- **语言**: TypeScript
+- **样式**: TailwindCSS 4
+- **状态**: SWR
+- **UI**: Lucide Icons
+
+## 💰 商业化模式
+
+**一次性买断 - 终身使用**
+
+- **免费版**: 基础功能，限制 100 张照片
+- **终身版**: ¥99 一次性付费，无限照片，全部功能
+
+## 📦 项目结构
+
+```
+our-memories/
+├── backend/              # Go 后端
+│   ├── cmd/             # 命令行工具（创建管理员）
+│   ├── handlers/        # API 处理器
+│   ├── middleware/      # 中间件（认证、权限）
+│   ├── models/          # 数据模型
+│   ├── db/              # 数据库迁移
+│   ├── utils/           # 工具函数
+│   └── main.go          # 入口文件
+├── apps/
+│   ├── web/             # 用户前端（Next.js）
+│   └── admin/           # 管理后台（Next.js）
+├── DEPLOYMENT.md        # 部署指南
+└── SUMMARY.md           # 项目总结
+```
+
+## 🧪 测试
+
+### 权限测试
+```bash
+# 创建两个用户 A 和 B（同一个 space）
+# A 创建内容，B 尝试删除 → 应返回 403
+```
+
+### 管理后台测试
+```bash
+# 登录管理后台
+# 暂停某个 space
+# 该 space 的用户登录 → 应提示账户已暂停
+```
+
+## 🐛 已知限制
+
+1. **Trip Guides 无权限检查** - 存储在 JSON 中，暂时允许任何成员编辑
+2. **照片删除失败无重试** - OSS 删除失败仅记录日志
+3. **前端订单创建未实现** - 需要对接支付网关
+
+详见 [SUMMARY.md](./SUMMARY.md)
+
+## 📝 环境变量
+
+### 后端必需
+```bash
+JWT_SECRET=<32+ 字符随机字符串>
 DATABASE_PATH=./data/ourMemories.db
-PORT=8080
-JWT_SECRET=change-me-at-least-24-characters-long-secret
-ALLOWED_ORIGINS=http://localhost:3002
-DEFAULT_SPACE_CODE=our-space-2026
-DEFAULT_PASSWORD=1234
-AUTO_SEED=true
-
-S3_ENDPOINT=
-S3_ACCESS_KEY_ID=
-S3_SECRET_ACCESS_KEY=
-S3_BUCKET=our-memories
-S3_PUBLIC_BASE_URL=
+ALLOWED_ORIGINS=http://localhost:3002,http://localhost:3003
 ```
 
-说明：
-
-- `DATABASE_PATH`：SQLite 数据库文件路径。
-- `JWT_SECRET`：生产环境必须改成足够长的随机字符串，至少 24 个字符。
-- `ALLOWED_ORIGINS`：允许访问 API 的前端来源，多个值用英文逗号分隔。
-- `DEFAULT_SPACE_CODE`、`DEFAULT_PASSWORD`：首次自动初始化空间时使用。
-- `AUTO_SEED`：空库启动时是否自动初始化默认空间和用户。
-- `S3_*`：对象存储配置。留空时图片会以 data URL 形式保存，适合本地体验；生产环境建议配置对象存储。
-
-如需启用 AI 文案润色，可额外配置：
-
-```text
-DEEPSEEK_API_KEY=your-api-key
-DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+### 可选配置
+```bash
+S3_ENDPOINT=<对象存储端点>
+S3_ACCESS_KEY_ID=<访问密钥>
+S3_SECRET_ACCESS_KEY=<密钥>
+DEEPSEEK_API_KEY=<AI 润色 API 密钥>
 ```
 
-## Docker 运行后端
+完整配置见 `backend/.env.example`
 
-仓库根目录提供了后端 Dockerfile 和 `docker-compose.yml`：
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📄 许可证
+
+MIT License
+
+---
+
+**版本**: v1.0.0
+**状态**: ✅ 生产就绪
+**最后更新**: 2026-06-20
+
+---
+
+## 🔗 同端口部署
+
+推荐使用同端口部署（前后端同域），简化架构和配置：
 
 ```bash
-docker compose up -d --build api
+# 一键部署
+./deploy.sh
+
+# 启动服务器
+cd backend && go run main.go
+
+# 访问
+# API: http://localhost:8080/api/v1
+# 管理后台: http://localhost:8080/admin
 ```
 
-默认会将 API 暴露在：
-
-```text
-http://localhost:8080
-```
-
-生产部署时请通过环境变量覆盖 `JWT_SECRET`、`ALLOWED_ORIGINS`、`DEFAULT_SPACE_CODE`、`DEFAULT_PASSWORD` 和对象存储配置。
-
-## 多端构建
-
-```bash
-npm run build:web
-npm run miniprogram:build
-npm run desktop
-npm run dist:win
-npm run mobile:sync
-npm run mobile:android:build
-```
-
-移动端和桌面端都需要连接已部署的后端。构建 Android APK 前，可设置：
-
-```bash
-NEXT_PUBLIC_API_BASE_URL=https://your-api.example.com
-```
-
-## 友情链接
-
-- [LINUX DO](https://linux.do/)：本项目认可并链接 LINUX DO 社区。
+详见 [SAME_PORT_DEPLOYMENT.md](./SAME_PORT_DEPLOYMENT.md)

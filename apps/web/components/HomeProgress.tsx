@@ -8,8 +8,6 @@ import { cities } from "@/data/cities";
 import {
   getLitCityIds,
   getLitProvinceIds,
-  memoryStoreUpdatedEvent,
-  type LocalMemoryStore,
 } from "@/data/progress";
 import { TOTAL_PROVINCES } from "@/data/provinces";
 import {
@@ -23,8 +21,8 @@ import {
   syncAppSettings,
   type AppSettings,
 } from "@/data/appSettings";
-import { apiFetch } from "@/lib/apiClient";
 import TripGuidesCard from "@/components/TripGuidesCard";
+import { useMemoryStore } from "@/lib/memoryStore";
 
 const weatherFallbackTemp = 24;
 
@@ -559,36 +557,10 @@ function CoupleLogo() {
 }
 
 function useProgress() {
-  const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    const handleMemoryUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<LocalMemoryStore>).detail;
-      if (detail) setLocalMemories(detail);
-    };
-
-    async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
-
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled && data?.memories) setLocalMemories(data.memories);
-    }
-
-    window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    loadLocalMemories();
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    };
-  }, []);
+  const { data } = useMemoryStore();
 
   return useMemo(() => {
+    const localMemories = data?.memories ?? {};
     const litCityIds = getLitCityIds(localMemories);
     const litProvinceIds = getLitProvinceIds(litCityIds);
 
@@ -596,7 +568,7 @@ function useProgress() {
       cityCount: litCityIds.size,
       provinceCount: litProvinceIds.size,
     };
-  }, [localMemories]);
+  }, [data?.memories]);
 }
 
 export function ProgressBadge() {
@@ -657,41 +629,15 @@ export function ProvinceProgressBadge({
   provinceId: string;
   total: number;
 }>) {
-  const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    const handleMemoryUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<LocalMemoryStore>).detail;
-      if (detail) setLocalMemories(detail);
-    };
-
-    async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
-
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled && data?.memories) setLocalMemories(data.memories);
-    }
-
-    window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    loadLocalMemories();
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    };
-  }, []);
+  const { data } = useMemoryStore();
 
   const count = useMemo(() => {
+    const localMemories = data?.memories ?? {};
     const litCityIds = getLitCityIds(localMemories);
 
     return cities.filter((city) => city.provinceId === provinceId && litCityIds.has(city.id))
       .length;
-  }, [localMemories, provinceId]);
+  }, [data?.memories, provinceId]);
 
   return (
     <div className="hidden items-center gap-2 rounded-[8px] border border-[#D8DDD8]/90 bg-[#FAFBF7]/70 px-4 py-2.5 text-sm text-[#5A6670]/76 shadow-[0_8px_24px_rgba(90,102,112,0.08)] backdrop-blur sm:flex">

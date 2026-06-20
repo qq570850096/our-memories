@@ -115,8 +115,21 @@ func ReplyWhisper(c *gin.Context) {
 func DeleteWhisper(c *gin.Context) {
 	id := c.Param("id")
 	spaceID := c.GetString("spaceID")
+	userID := c.GetString("userID")
 
-	_, err := db.DB.Exec(`DELETE FROM whispers WHERE id = ? AND space_id = ?`, id, spaceID)
+	// 检查权限：只有创建者可以删除
+	var createdByID string
+	err := db.DB.QueryRow(`SELECT created_by_id FROM whispers WHERE id = ? AND space_id = ?`, id, spaceID).Scan(&createdByID)
+	if err != nil {
+		utils.Error(c, 404, "Whisper not found")
+		return
+	}
+	if createdByID != userID {
+		utils.Error(c, 403, "Only the creator can delete this whisper")
+		return
+	}
+
+	_, err = db.DB.Exec(`DELETE FROM whispers WHERE id = ? AND space_id = ?`, id, spaceID)
 	if err != nil {
 		utils.Error(c, 500, "Failed to delete whisper")
 		return

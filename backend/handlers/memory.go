@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,8 +12,11 @@ import (
 	"our-memories-backend/cache"
 	"our-memories-backend/db"
 	"our-memories-backend/models"
+	"our-memories-backend/storage"
 	"our-memories-backend/utils"
 )
+
+var errCoverPhotoNotFound = errors.New("cover photo not found")
 
 func GetMemories(c *gin.Context) {
 	spaceID := c.GetString("spaceID")
@@ -36,7 +41,7 @@ func GetMemories(c *gin.Context) {
 }
 
 func clearMemoriesCache(spaceID string) {
-	cache.Clear() // 简单起见，清空所有缓存
+	cache.DeletePrefix(fmt.Sprintf("memories:%s:", spaceID))
 }
 
 func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) {
@@ -54,7 +59,7 @@ func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) 
 	}
 	defer rows.Close()
 
-	memories := map[string][]gin.H{}
+	memoryRows := []models.Memory{}
 	for rows.Next() {
 		var m models.Memory
 		var tagsJSON string
@@ -69,16 +74,24 @@ func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) 
 			m.Tags = []string{}
 		}
 
-		photoRows, _ := db.DB.Query(`SELECT id, memory_id, key, url, COALESCE(mime_type, ''),
-			COALESCE(width, 0), COALESCE(height, 0), sort_order, created_at FROM memory_photos WHERE memory_id = ? ORDER BY sort_order`,
-			m.ID)
-		m.Photos = []models.Photo{}
-		for photoRows.Next() {
-			var p models.Photo
-			photoRows.Scan(&p.ID, &p.MemoryID, &p.Key, &p.URL, &p.MimeType, &p.Width, &p.Height, &p.SortOrder, &p.CreatedAt)
-			m.Photos = append(m.Photos, p)
-		}
-		photoRows.Close()
+		memoryRows = append(memoryRows, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	memoryIDs := make([]string, 0, len(memoryRows))
+	for _, m := range memoryRows {
+		memoryIDs = append(memoryIDs, m.ID)
+	}
+	photosByMemoryID, err := loadMemoryPhotosByMemoryIDs(memoryIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	memories := map[string][]gin.H{}
+	for _, m := range memoryRows {
+		m.Photos = photosByMemoryID[m.ID]
 
 		photoURLs := []string{}
 		photoItems := []models.Photo{}
@@ -90,8 +103,18 @@ func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) 
 			photoItems = append(photoItems, photo)
 		}
 		image := ""
+		if m.CoverPhotoID != "" {
+			for _, photo := range m.Photos {
+				if photo.ID == m.CoverPhotoID && photo.URL != "" {
+					image = photo.URL
+					break
+				}
+			}
+		}
 		if len(photoURLs) > 0 {
-			image = photoURLs[0]
+			if image == "" {
+				image = photoURLs[0]
+			}
 		}
 
 		memories[m.CityID] = append(memories[m.CityID], gin.H{
@@ -108,6 +131,7 @@ func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) 
 			"partnerNote":         m.PartnerNote,
 			"partnerNoteAuthorId": m.PartnerNoteAuthorID,
 			"placeName":           m.PlaceName,
+			"coverPhotoId":        m.CoverPhotoID,
 			"image":               image,
 			"photos":              photoURLs,
 			"photoItems":          photoItems,
@@ -125,24 +149,18 @@ func CreateMemory(c *gin.Context) {
 	userID := c.GetString("userID")
 
 	var req struct {
-		CityID      string   `json:"cityId" binding:"required"`
-		City        string   `json:"city" binding:"required"`
-		CityEn      string   `json:"cityEn" binding:"required"`
-		Title       string   `json:"title"`
-		Date        string   `json:"date" binding:"required"`
-		Text        string   `json:"text" binding:"required"`
-		Mood        string   `json:"mood"`
-		Tags        []string `json:"tags"`
-		Visibility  string   `json:"visibility"`
-		PartnerNote string   `json:"partnerNote"`
-		PlaceName   string   `json:"placeName"`
-		Photos      []struct {
-			Key      string `json:"key"`
-			URL      string `json:"url"`
-			MimeType string `json:"mimeType"`
-			Width    int    `json:"width"`
-			Height   int    `json:"height"`
-		} `json:"photos"`
+		CityID      string       `json:"cityId" binding:"required"`
+		City        string       `json:"city" binding:"required"`
+		CityEn      string       `json:"cityEn" binding:"required"`
+		Title       string       `json:"title"`
+		Date        string       `json:"date" binding:"required"`
+		Text        string       `json:"text" binding:"required"`
+		Mood        string       `json:"mood"`
+		Tags        []string     `json:"tags"`
+		Visibility  string       `json:"visibility"`
+		PartnerNote string       `json:"partnerNote"`
+		PlaceName   string       `json:"placeName"`
+		Photos      []photoInput `json:"photos"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -155,6 +173,10 @@ func CreateMemory(c *gin.Context) {
 	if req.Visibility == "" {
 		req.Visibility = "both"
 	}
+	if err := uploadPhotoInputs(spaceID, "memories", req.Photos); err != nil {
+		utils.Error(c, 500, "Failed to upload memory photos")
+		return
+	}
 
 	partnerNote := strings.TrimSpace(req.PartnerNote)
 	partnerNoteAuthorID := ""
@@ -162,7 +184,14 @@ func CreateMemory(c *gin.Context) {
 		partnerNoteAuthorID = userID
 	}
 
-	_, err := db.DB.Exec(`INSERT INTO memories (id, space_id, city_id, city, city_en, title, date, text, mood, tags, visibility, partner_note, partner_note_author_id, place_name, created_by_id)
+	tx, err := db.DB.Begin()
+	if err != nil {
+		utils.Error(c, 500, "Failed to create memory")
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`INSERT INTO memories (id, space_id, city_id, city, city_en, title, date, text, mood, tags, visibility, partner_note, partner_note_author_id, place_name, created_by_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		memoryID, spaceID, req.CityID, req.City, req.CityEn, req.Title, req.Date, req.Text, req.Mood, tagsJSON, req.Visibility, partnerNote, partnerNoteAuthorID, req.PlaceName, userID)
 	if err != nil {
@@ -170,10 +199,13 @@ func CreateMemory(c *gin.Context) {
 		return
 	}
 
-	for i, photo := range req.Photos {
-		photoID := utils.NewID()
-		db.DB.Exec(`INSERT INTO memory_photos (id, memory_id, key, url, mime_type, width, height, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			photoID, memoryID, photo.Key, photo.URL, photo.MimeType, photo.Width, photo.Height, i)
+	if err := insertMemoryPhotos(tx, memoryID, req.Photos); err != nil {
+		utils.Error(c, 500, "Failed to save memory photos")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		utils.Error(c, 500, "Failed to create memory")
+		return
 	}
 
 	clearMemoriesCache(spaceID)
@@ -192,22 +224,16 @@ func UpdateMemory(c *gin.Context) {
 	userID := c.GetString("userID")
 
 	var req struct {
-		Title       string   `json:"title"`
-		Date        string   `json:"date"`
-		Text        string   `json:"text"`
-		Mood        string   `json:"mood"`
-		Tags        []string `json:"tags"`
-		Visibility  string   `json:"visibility"`
-		PartnerNote *string  `json:"partnerNote"`
-		PlaceName   string   `json:"placeName"`
-		CoverImage  string   `json:"coverImage"`
-		Photos      []struct {
-			Key      string `json:"key"`
-			URL      string `json:"url"`
-			MimeType string `json:"mimeType"`
-			Width    int    `json:"width"`
-			Height   int    `json:"height"`
-		} `json:"photos"`
+		Title       string        `json:"title"`
+		Date        string        `json:"date"`
+		Text        string        `json:"text"`
+		Mood        string        `json:"mood"`
+		Tags        []string      `json:"tags"`
+		Visibility  string        `json:"visibility"`
+		PartnerNote *string       `json:"partnerNote"`
+		PlaceName   string        `json:"placeName"`
+		CoverImage  string        `json:"coverImage"`
+		Photos      *[]photoInput `json:"photos"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -261,23 +287,69 @@ func UpdateMemory(c *gin.Context) {
 		}
 	}
 
-	// 只有创建者可以更新照片
-	if isCreator && (len(req.Photos) > 0 || req.CoverImage != "") {
-		_, _ = db.DB.Exec(`DELETE FROM memory_photos WHERE memory_id = ?`, id)
-		photos := req.Photos
-		if len(photos) == 0 && req.CoverImage != "" {
-			photos = append(photos, struct {
-				Key      string `json:"key"`
-				URL      string `json:"url"`
-				MimeType string `json:"mimeType"`
-				Width    int    `json:"width"`
-				Height   int    `json:"height"`
-			}{URL: req.CoverImage, MimeType: "image/jpeg"})
+	// 只有创建者可以更新照片。coverImage 只更新封面指针，不替换照片集。
+	if isCreator && req.Photos != nil {
+		oldPhotos := collectPhotos(`SELECT key, url FROM memory_photos WHERE memory_id = ?`, id)
+		oldCoverImage := currentMemoryCoverImage(id)
+		photos := *req.Photos
+		if err := uploadPhotoInputs(spaceID, "memories", photos); err != nil {
+			utils.Error(c, 500, "Failed to upload memory photos")
+			return
 		}
-		for i, photo := range photos {
-			photoID := utils.NewID()
-			db.DB.Exec(`INSERT INTO memory_photos (id, memory_id, key, url, mime_type, width, height, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				photoID, id, photo.Key, photo.URL, photo.MimeType, photo.Width, photo.Height, i)
+
+		tx, err := db.DB.Begin()
+		if err != nil {
+			utils.Error(c, 500, "Failed to update memory photos")
+			return
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				tx.Rollback()
+			}
+		}()
+
+		if _, err := tx.Exec(`DELETE FROM memory_photos WHERE memory_id = ?`, id); err != nil {
+			utils.Error(c, 500, "Failed to update memory photos")
+			return
+		}
+		if err := insertMemoryPhotos(tx, id, photos); err != nil {
+			utils.Error(c, 500, "Failed to save memory photos")
+			return
+		}
+		nextCoverImage := req.CoverImage
+		if nextCoverImage == "" {
+			nextCoverImage = oldCoverImage
+		}
+		if err := setMemoryCoverPhotoTx(tx, id, nextCoverImage); err != nil {
+			if errors.Is(err, errCoverPhotoNotFound) {
+				if req.CoverImage != "" {
+					utils.Error(c, 400, "Cover photo not found")
+					return
+				}
+				if err := setMemoryCoverPhotoTx(tx, id, ""); err != nil {
+					utils.Error(c, 500, "Failed to update memory cover")
+					return
+				}
+			} else {
+				utils.Error(c, 500, "Failed to update memory cover")
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			utils.Error(c, 500, "Failed to update memory photos")
+			return
+		}
+		committed = true
+		deleteRemovedPhotos(oldPhotos, photos)
+	} else if isCreator && req.CoverImage != "" {
+		if err := setMemoryCoverPhoto(spaceID, id, req.CoverImage); err != nil {
+			if errors.Is(err, errCoverPhotoNotFound) {
+				utils.Error(c, 400, "Cover photo not found")
+				return
+			}
+			utils.Error(c, 500, "Failed to update memory cover")
+			return
 		}
 	}
 
@@ -289,6 +361,82 @@ func UpdateMemory(c *gin.Context) {
 	}
 
 	utils.Success(c, gin.H{"ok": true, "memories": memories})
+}
+
+func currentMemoryCoverImage(memoryID string) string {
+	var url string
+	err := db.DB.QueryRow(`
+		SELECT p.url
+		FROM memory_photos p
+		JOIN memories m ON m.cover_photo_id = p.id
+		WHERE m.id = ? AND p.memory_id = ?
+	`, memoryID, memoryID).Scan(&url)
+	if err != nil {
+		return ""
+	}
+	return url
+}
+
+func setMemoryCoverPhoto(spaceID, memoryID, coverImage string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := setMemoryCoverPhotoTx(tx, memoryID, coverImage); err != nil {
+		return err
+	}
+
+	result, err := tx.Exec(`UPDATE memories SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND space_id = ?`, memoryID, spaceID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return tx.Commit()
+}
+
+func setMemoryCoverPhotoTx(tx *sql.Tx, memoryID, coverImage string) error {
+	if coverImage == "" {
+		_, err := tx.Exec(`UPDATE memories SET cover_photo_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, memoryID)
+		return err
+	}
+
+	coverPhotoID, err := findMemoryPhotoID(tx, memoryID, coverImage)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE memories SET cover_photo_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, coverPhotoID, memoryID)
+	return err
+}
+
+func findMemoryPhotoID(tx *sql.Tx, memoryID, coverImage string) (string, error) {
+	key := storage.KeyFromURL(coverImage)
+	var photoID string
+	var err error
+	if key != "" {
+		err = tx.QueryRow(`
+			SELECT id
+			FROM memory_photos
+			WHERE memory_id = ? AND (url = ? OR key = ?)
+			ORDER BY CASE WHEN url = ? THEN 0 ELSE 1 END
+			LIMIT 1
+		`, memoryID, coverImage, key, coverImage).Scan(&photoID)
+	} else {
+		err = tx.QueryRow(`
+			SELECT id
+			FROM memory_photos
+			WHERE memory_id = ? AND url = ?
+			LIMIT 1
+		`, memoryID, coverImage).Scan(&photoID)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errCoverPhotoNotFound
+	}
+	return photoID, err
 }
 
 func DeleteMemory(c *gin.Context) {
@@ -310,11 +458,15 @@ func DeleteMemory(c *gin.Context) {
 		return
 	}
 
+	// 删除前先抓取图片对象（级联会删掉照片行），删库成功后再清理 OSS。
+	photos := collectPhotos(`SELECT key, url FROM memory_photos WHERE memory_id = ?`, id)
+
 	_, err = db.DB.Exec(`DELETE FROM memories WHERE id = ? AND space_id = ?`, id, spaceID)
 	if err != nil {
 		utils.Error(c, 500, "Failed to delete memory")
 		return
 	}
+	deletePhotos(photos)
 
 	clearMemoriesCache(spaceID)
 	memories, err := loadMemoryStore(spaceID, c.GetString("userID"))

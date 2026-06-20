@@ -1,12 +1,16 @@
 package models
 
 type Space struct {
-	ID           string `json:"id"`
-	SpaceCode    string `json:"spaceCode"`
-	PasswordHash string `json:"-"`
-	Name         string `json:"name"`
-	CreatedAt    string `json:"createdAt"`
-	UpdatedAt    string `json:"updatedAt"`
+	ID               string `json:"id"`
+	SpaceCode        string `json:"spaceCode"`
+	PasswordHash     string `json:"-"`
+	Name             string `json:"name"`
+	Status           string `json:"status"`           // 'active' | 'suspended' | 'deleted'
+	Tier             string `json:"tier"`             // 'free' | 'lifetime'
+	PurchasedAt      string `json:"purchasedAt,omitempty"`
+	StorageUsedBytes int64  `json:"storageUsedBytes"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
 }
 
 type User struct {
@@ -15,7 +19,37 @@ type User struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	Avatar      string `json:"avatar,omitempty"`
+	Role        string `json:"role"`      // 'owner' | 'member'
 	CreatedAt   string `json:"createdAt"`
+}
+
+type Admin struct {
+	ID           string `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"-"`
+	DisplayName  string `json:"displayName"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+type Order struct {
+	ID            string  `json:"id"`
+	SpaceID       string  `json:"spaceId"`
+	Amount        float64 `json:"amount"`
+	Currency      string  `json:"currency"`
+	Status        string  `json:"status"` // 'pending' | 'paid' | 'cancelled'
+	PaymentMethod string  `json:"paymentMethod,omitempty"`
+	PaidAt        string  `json:"paidAt,omitempty"`
+	CreatedAt     string  `json:"createdAt"`
+}
+
+type AuditLog struct {
+	ID         string `json:"id"`
+	AdminID    string `json:"adminId"`
+	Action     string `json:"action"`
+	TargetType string `json:"targetType,omitempty"`
+	TargetID   string `json:"targetId,omitempty"`
+	Details    string `json:"details,omitempty"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 type Memory struct {

@@ -1,16 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Camera, MapPin, RefreshCw } from "lucide-react";
 import { cities } from "@/data/cities";
 import { memories, type Memory } from "@/data/memories";
 import {
-  memoryStoreUpdatedEvent,
   type LocalMemoryStore,
 } from "@/data/progress";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
-import { apiFetch } from "@/lib/apiClient";
+import { useMemoryStore } from "@/lib/memoryStore";
 
 interface RandomPhoto {
   id: string;
@@ -55,14 +54,13 @@ function PhotoImage({ photo }: Readonly<{ photo: RandomPhoto }>) {
 }
 
 export default function RandomPhotoCard() {
-  const [photo, setPhoto] = useState<RandomPhoto | null>(null);
-  const [photos, setPhotos] = useState<RandomPhoto[]>([]);
+  const [initialPhotoSeed] = useState(() => Math.random());
+  const [selectedPhotoId, setSelectedPhotoId] = useState("");
+  const { data } = useMemoryStore();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const applyMemories = (localMemories: LocalMemoryStore) => {
-      const nextPhotos = collectMemories(localMemories).flatMap((memory) =>
+  const photos = useMemo(
+    () =>
+      collectMemories(data?.memories ?? {}).flatMap((memory) =>
         (memory.photos?.length ? memory.photos : [memory.image]).map((src, photoIndex) => ({
           id: `${memory.id}-${photoIndex}`,
           src,
@@ -71,39 +69,14 @@ export default function RandomPhotoCard() {
           date: memory.date,
           text: memory.text,
         })),
-      );
+      ),
+    [data?.memories],
+  );
 
-      setPhotos(nextPhotos);
-      setPhoto(nextPhotos.length > 0 ? nextPhotos[Math.floor(Math.random() * nextPhotos.length)] : null);
-    };
-
-    const handleMemoryUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<LocalMemoryStore>).detail;
-      if (detail) applyMemories(detail);
-    };
-
-    async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) {
-        if (!cancelled) applyMemories({});
-        return;
-      }
-
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled) applyMemories(data?.memories ?? {});
-    }
-
-    window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    loadLocalMemories();
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
-    };
-  }, []);
+  const photo = useMemo(() => {
+    if (photos.length === 0) return null;
+    return photos.find((candidate) => candidate.id === selectedPhotoId) ?? photos[Math.floor(initialPhotoSeed * photos.length)];
+  }, [initialPhotoSeed, photos, selectedPhotoId]);
 
   const href = useMemo(() => {
     if (!photo) return "/memories";
@@ -116,7 +89,7 @@ export default function RandomPhotoCard() {
     if (photos.length === 0) return;
     const candidates = photos.filter((candidate) => candidate.id !== photo.id);
     const source = candidates.length > 0 ? candidates : photos;
-    setPhoto(source[Math.floor(Math.random() * source.length)]);
+    setSelectedPhotoId(source[Math.floor(Math.random() * source.length)].id);
   };
 
   return (

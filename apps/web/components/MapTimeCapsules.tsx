@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { Lock } from "lucide-react";
-import { apiJson } from "@/lib/apiClient";
+import { useApi } from "@/lib/swr";
 
 type TimeCapsule = {
   id: string;
@@ -19,24 +19,14 @@ function daysUntil(dateStr: string) {
 }
 
 export function MapTimeCapsules() {
-  const [capsules, setCapsules] = useState<TimeCapsule[]>([]);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await apiJson<{ timeCapsules: TimeCapsule[] }>("/api/v1/time-capsules");
-        // 只显示未开启的（未到期的且未开启）
-        const unopened = (data.timeCapsules || []).filter(c => {
-          const days = daysUntil(c.openDate);
-          return days > 0;
-        });
-        setCapsules(unopened.slice(0, 3)); // 最多3个
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    void load();
-  }, []);
+  const { data } = useApi<{ timeCapsules: TimeCapsule[] }>("/api/v1/time-capsules");
+  const capsules = useMemo(
+    () =>
+      (data?.timeCapsules ?? [])
+        .filter((capsule) => daysUntil(capsule.openDate) > 0)
+        .slice(0, 3),
+    [data?.timeCapsules],
+  );
 
   if (capsules.length === 0) return null;
 
