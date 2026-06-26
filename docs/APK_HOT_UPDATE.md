@@ -39,7 +39,7 @@ npm run build:apk:remote https://your-domain.com
 ./scripts/build-apk-remote.sh https://ourmemories.example.com
 
 # 只有裸 IP / HTTP 时，用于私有分发
-CAPACITOR_ALLOW_HTTP=1 CAPACITOR_SERVER_URL=http://115.190.114.125 npm run mobile:android:build:online
+CAPACITOR_ALLOW_HTTP=1 CAPACITOR_SERVER_URL=http://your-server-ip npm run mobile:android:build:online
 
 # 连接到本地开发服务器（测试）
 ./scripts/build-apk-remote.sh http://192.168.1.100:3000

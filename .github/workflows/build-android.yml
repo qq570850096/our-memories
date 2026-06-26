@@ -5,13 +5,17 @@ on:
     branches: [main, master]
   workflow_dispatch:
     inputs:
-      api_base_url:
-        description: "Backend API base URL"
+      server_url:
+        description: "Online app URL loaded by the APK"
         required: false
-        default: "https://lylwithgwy.zeabur.app"
+      allow_http:
+        description: "Allow an HTTP server URL for private/internal APK builds"
+        required: false
+        default: "0"
 
 env:
-  API_BASE_URL: ${{ inputs.api_base_url || secrets.API_BASE_URL || 'https://lylwithgwy.zeabur.app' }}
+  CAPACITOR_SERVER_URL: ${{ inputs.server_url || secrets.CAPACITOR_SERVER_URL }}
+  CAPACITOR_ALLOW_HTTP: ${{ inputs.allow_http || secrets.CAPACITOR_ALLOW_HTTP || '0' }}
 
 jobs:
   build-apk:
@@ -40,21 +44,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set production API URL
-        run: echo "NEXT_PUBLIC_API_BASE_URL=${API_BASE_URL}" > apps/web/.env.local
-
-      - name: Build web app
-        run: npm run build:web
-
-      - name: Sync Capacitor Android
-        working-directory: apps/mobile
-        run: npx cap sync android
-
-      - name: Build Android APK
-        working-directory: apps/mobile/android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
+      - name: Build online Android APK
+        run: npm run mobile:android:build:online
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

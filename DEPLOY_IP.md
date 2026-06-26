@@ -1,9 +1,9 @@
-# 部署到 115.190.114.125
+# 裸 IP 部署
 
 目标地址：
 
 ```text
-http://115.190.114.125/
+http://your-server-ip/
 ```
 
 推荐使用同端口部署：用户端、管理端和 API 都由同一个 Go 服务提供。
@@ -21,7 +21,7 @@ PUBLIC_DIR=./backend/public \
 JWT_SECRET=<32字符以上随机密钥> \
 ADMIN_USERNAME=admin \
 ADMIN_PASSWORD=<强密码> \
-ALLOWED_ORIGINS=http://115.190.114.125,http://localhost:3002,http://localhost:3003 \
+ALLOWED_ORIGINS=http://your-server-ip,http://localhost:3002,http://localhost:3003 \
 ./dist/our-memories-api
 ```
 
@@ -43,7 +43,7 @@ PUBLIC_DIR=./backend/public
 JWT_SECRET=<32字符以上随机密钥>
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<强密码>
-ALLOWED_ORIGINS=http://115.190.114.125,http://localhost:3002,http://localhost:3003
+ALLOWED_ORIGINS=http://your-server-ip,http://localhost:3002,http://localhost:3003
 ```
 
 如果前端和后端同域部署，构建 Web/Admin 时保持：
@@ -57,9 +57,9 @@ NEXT_PUBLIC_API_BASE_URL=
 ## 访问地址
 
 ```text
-用户端: http://115.190.114.125/
-管理端: http://115.190.114.125/admin/
-API: http://115.190.114.125/api/v1
+用户端: http://your-server-ip/
+管理端: http://your-server-ip/admin/
+API: http://your-server-ip/api/v1
 ```
 
 ## Docker 注意

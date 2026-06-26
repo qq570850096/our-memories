@@ -86,7 +86,7 @@ npm run dev
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) - 完整部署指南
 - [SAME_PORT_DEPLOYMENT.md](./SAME_PORT_DEPLOYMENT.md) - 同端口部署指南（前后端同域）
-- [DEPLOY_115_190_114_125.md](./DEPLOY_115_190_114_125.md) - 115.190.114.125 裸 IP 部署
+- [DEPLOY_IP.md](./DEPLOY_IP.md) - 裸 IP 部署
 - [SUMMARY.md](./SUMMARY.md) - 项目修复与升级总结
 - [计划文档](./.claude/plans/elegant-giggling-flame.md) - 实现计划
 
