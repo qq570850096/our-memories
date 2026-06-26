@@ -22,15 +22,24 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [session, setSession] = useState<AdminSession | null>();
+  const [session, setSession] = useState<AdminSession | null>(null);
   const currentPath = pathname?.startsWith("/admin/")
     ? pathname.slice("/admin".length)
     : pathname;
 
   useEffect(() => {
-    const storedSession = getSession();
-    setSession(storedSession);
-    if (!storedSession) router.push("/login");
+    let mounted = true;
+
+    queueMicrotask(() => {
+      if (!mounted) return;
+      const storedSession = getSession();
+      setSession(storedSession);
+      if (!storedSession) router.push("/login");
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, [router]);
 
   const handleLogout = () => {

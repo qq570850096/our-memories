@@ -1,9 +1,8 @@
 services:
   api:
     container_name: our-memories-api
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${OUR_MEMORIES_IMAGE:-ghcr.io/qq570850096/our-memories:latest}
+    pull_policy: always
     environment:
       PORT: 8080
       DATABASE_PATH: /app/data/ourMemories.db

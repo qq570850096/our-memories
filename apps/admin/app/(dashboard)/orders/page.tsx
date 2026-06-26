@@ -40,7 +40,7 @@ export default function OrdersPage() {
       await apiPost(`/api/v1/admin/orders/${orderId}/confirm`);
       mutate();
       alert("订单已确认");
-    } catch (err) {
+    } catch {
       alert("操作失败");
     }
   };

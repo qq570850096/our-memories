@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { apiGet, apiPut } from "@/lib/api";
-import { Search, Filter } from "lucide-react";
+import { Search } from "lucide-react";
 
 interface Space {
   id: string;
@@ -27,7 +27,7 @@ export default function SpacesPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
-  const { data, error, mutate } = useSWR<SpacesResponse>(
+  const { data, mutate } = useSWR<SpacesResponse>(
     `/api/v1/admin/spaces?page=${page}&pageSize=20&search=${search}&status=${status}`,
     apiGet
   );
@@ -37,7 +37,7 @@ export default function SpacesPage() {
     try {
       await apiPut(`/api/v1/admin/spaces/${spaceId}/status`, { status: newStatus });
       mutate();
-    } catch (err) {
+    } catch {
       alert("操作失败");
     }
   };
