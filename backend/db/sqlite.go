@@ -86,6 +86,10 @@ func Migrate() {
 
 	CREATE INDEX IF NOT EXISTS idx_memories_space_city ON memories(space_id, city_id);
 	CREATE INDEX IF NOT EXISTS idx_memories_space_date ON memories(space_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_memories_space_date_order ON memories(space_id, date DESC, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_memories_space_city_date ON memories(space_id, city_id, date DESC, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_memories_space_visibility_date ON memories(space_id, visibility, date DESC, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_memories_space_creator_date ON memories(space_id, created_by_id, date DESC, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS memory_photos (
 		id TEXT PRIMARY KEY,
@@ -101,6 +105,7 @@ func Migrate() {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_memory_photos_memory ON memory_photos(memory_id);
+	CREATE INDEX IF NOT EXISTS idx_memory_photos_memory_sort ON memory_photos(memory_id, sort_order);
 
 	CREATE TABLE IF NOT EXISTS anniversary_cards (
 		id TEXT PRIMARY KEY,
