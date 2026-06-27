@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type ModalSize = "sm" | "md" | "lg" | "xl";
 
@@ -61,7 +62,7 @@ export function Modal({
     };
   }, [open]);
 
-  return (
+  const modal = (
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-[70] grid place-items-center px-4">
@@ -118,4 +119,7 @@ export function Modal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === "undefined") return modal;
+  return createPortal(modal, document.body);
 }

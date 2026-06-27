@@ -23,6 +23,8 @@ import {
 } from "@/data/appSettings";
 import TripGuidesCard from "@/components/TripGuidesCard";
 import { useMemoryStore } from "@/lib/memoryStore";
+import { pullRefreshEvent } from "@/lib/refresh";
+import { useDeferredReady } from "@/lib/useDeferredReady";
 
 const weatherFallbackTemp = 24;
 
@@ -30,19 +32,29 @@ const weatherFallbackTemp = 24;
 // from the settings page (same tab via custom event, other tabs via storage).
 function useAppSettings(): AppSettings {
   const [settings, setSettings] = useState<AppSettings>({});
+  const ready = useDeferredReady(900);
 
   useEffect(() => {
     const sync = () => setSettings(readAppSettings());
+    const syncRemote = () => {
+      void syncAppSettings().then(setSettings).catch(() => {});
+    };
     sync();
-    void syncAppSettings().then(setSettings).catch(() => {});
     window.addEventListener(appSettingsUpdatedEvent, sync);
     window.addEventListener("storage", sync);
+    window.addEventListener(pullRefreshEvent, syncRemote);
 
     return () => {
       window.removeEventListener(appSettingsUpdatedEvent, sync);
       window.removeEventListener("storage", sync);
+      window.removeEventListener(pullRefreshEvent, syncRemote);
     };
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    void syncAppSettings().then(setSettings).catch(() => {});
+  }, [ready]);
 
   return settings;
 }
@@ -273,6 +285,7 @@ function WeatherCard() {
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const settings = useAppSettings();
+  const ready = useDeferredReady(1500);
 
   const locationCities = useMemo(
     () =>
@@ -286,6 +299,7 @@ function WeatherCard() {
   );
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
 
     async function loadWeather() {
@@ -320,12 +334,14 @@ function WeatherCard() {
 
     loadWeather();
     const interval = window.setInterval(loadWeather, 30 * 60_000);
+    window.addEventListener(pullRefreshEvent, loadWeather);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener(pullRefreshEvent, loadWeather);
     };
-  }, [locationCities]);
+  }, [locationCities, ready]);
 
   return (
     <div className="mb-4 rounded-[8px] border border-dim/70 bg-cream/66 p-3 text-ink shadow-[0_10px_24px_rgba(90,102,112,0.05)] backdrop-blur">

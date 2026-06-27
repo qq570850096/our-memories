@@ -9,6 +9,7 @@ import { MemoryContentView, photosOfMemory } from "@/components/memories/MemoryC
 import { MemoryGallery } from "@/components/memories/MemoryGallery";
 import { MemoryHistory } from "@/components/memories/MemoryHistory";
 import { MobileMemoryImage } from "@/components/memories/MobileMemoryImage";
+import { PhotoLightbox } from "@/components/memories/PhotoLightbox";
 import { LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { DatePicker } from "@/components/ui/input";
@@ -99,6 +100,7 @@ export function MemoryCitySheet({
     memory && localMemoryIds.has(memory.id) && isAdmin && access.canAddNote && !access.canEdit,
   );
   const memoryPhotos = photosOfMemory(memory);
+  const coverPhotoIndex = Math.max(0, memoryPhotos.findIndex((photo) => photo === memory?.image));
   const galleryPhotos = Array.from(new Set(memories.flatMap((item) => photosOfMemory(item))));
   const showLandmarkTools = Boolean(onSaveLandmark && onDeleteLandmark);
   const canSetCover = Boolean(memory && onSetCover && canEditMemory);
@@ -128,6 +130,7 @@ export function MemoryCitySheet({
   const [activeTab, setActiveTab] = useState<MemoryPanelTab>("memory");
   const [isSaving, setIsSaving] = useState(false);
   const [annotatingMemoryId, setAnnotatingMemoryId] = useState<string | null>(null);
+  const [previewPhotoIndex, setPreviewPhotoIndex] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteError, setNoteError] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
@@ -239,12 +242,14 @@ export function MemoryCitySheet({
         resetAnnotation();
         setFormOpen(false);
         setActiveTab("memory");
+        setPreviewPhotoIndex(null);
         return;
       }
 
       resetForm(true);
       resetAnnotation();
       setActiveTab("memory");
+      setPreviewPhotoIndex(null);
       setFormOpen(defaultMode === "create" && isAdmin);
     }, 0);
 
@@ -762,7 +767,12 @@ export function MemoryCitySheet({
               </div>
             )}
 
-            <div className="relative aspect-[4/3] overflow-hidden rounded-[8px] border border-dim bg-mist">
+            <button
+              className="relative block aspect-[4/3] w-full overflow-hidden rounded-[8px] border border-dim bg-mist text-left transition hover:border-bloom focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky/70"
+              type="button"
+              onClick={() => memoryPhotos.length > 0 && setPreviewPhotoIndex(coverPhotoIndex)}
+              aria-label={memoryPhotos.length > 0 ? `放大查看 ${city.name} 回忆照片` : `${city.name} 回忆图片`}
+            >
               <MobileMemoryImage
                 src={memory?.image ?? resolvedLandmarkImage}
                 alt={`${city.name} memory`}
@@ -774,7 +784,7 @@ export function MemoryCitySheet({
                   {memoryPhotos.length} photos
                 </span>
               )}
-            </div>
+            </button>
 
             {memoryPhotos.length > 1 && (
               <div className="grid grid-cols-4 gap-2">
@@ -782,29 +792,38 @@ export function MemoryCitySheet({
                   const isCover = memory?.image === photo;
 
                   return (
-                    <button
+                    <div
                       key={`${memory?.id ?? city.id}-mobile-photo-${index}`}
                       className={`group relative aspect-square overflow-hidden rounded-[5px] border bg-mist transition ${
                         isCover
                           ? "border-bloom shadow-[0_0_0_2px_rgba(245,220,224,0.75)]"
                           : "border-dim hover:border-bloom"
                       }`}
-                      type="button"
-                      onClick={() => handleSetCover(photo)}
-                      aria-label={isCover ? "当前封面" : `将第 ${index + 1} 张照片设为封面`}
-                      disabled={!canSetCover || isCover || Boolean(settingCover)}
                     >
-                      <MobileMemoryImage src={photo} alt={`${city.name} memory photo ${index + 1}`} fit="cover" />
+                      <button
+                        className="relative h-full w-full"
+                        type="button"
+                        onClick={() => setPreviewPhotoIndex(index)}
+                        aria-label={`放大查看第 ${index + 1} 张照片`}
+                      >
+                        <MobileMemoryImage src={photo} alt={`${city.name} memory photo ${index + 1}`} fit="cover" />
+                      </button>
                       {canSetCover && (
-                        <span
+                        <button
+                          type="button"
                           className={`absolute inset-x-1 bottom-1 rounded-[4px] bg-cream/90 px-1.5 py-1 text-[10px] font-medium shadow-[0_4px_10px_rgba(90,102,112,0.10)] transition ${
                             isCover ? "text-bloom opacity-100" : "text-ink/68 opacity-0 group-hover:opacity-100"
                           }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (!isCover && !settingCover) void handleSetCover(photo);
+                          }}
+                          disabled={isCover || Boolean(settingCover)}
                         >
                           {isCover ? "封面" : settingCover === photo ? "保存中" : "设封面"}
-                        </span>
+                        </button>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1115,6 +1134,13 @@ export function MemoryCitySheet({
           </div>
         )}
       </div>
+      <PhotoLightbox
+        photos={memoryPhotos}
+        index={previewPhotoIndex}
+        title={`${city.name} 回忆照片`}
+        onClose={() => setPreviewPhotoIndex(null)}
+        onIndexChange={setPreviewPhotoIndex}
+      />
       {confirmDialog}
     </BottomSheet>
   );

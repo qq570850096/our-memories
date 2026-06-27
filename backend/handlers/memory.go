@@ -94,13 +94,11 @@ func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) 
 		m.Photos = photosByMemoryID[m.ID]
 
 		photoURLs := []string{}
-		photoItems := []models.Photo{}
 		for _, photo := range m.Photos {
 			if photo.URL == "" {
 				continue
 			}
 			photoURLs = append(photoURLs, photo.URL)
-			photoItems = append(photoItems, photo)
 		}
 		image := ""
 		if m.CoverPhotoID != "" {
@@ -134,7 +132,6 @@ func loadMemoryStore(spaceID string, userID string) (map[string][]gin.H, error) 
 			"coverPhotoId":        m.CoverPhotoID,
 			"image":               image,
 			"photos":              photoURLs,
-			"photoItems":          photoItems,
 			"createdById":         m.CreatedByID,
 			"createdAt":           m.CreatedAt,
 			"updatedAt":           m.UpdatedAt,

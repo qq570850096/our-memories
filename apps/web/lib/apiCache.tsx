@@ -35,7 +35,9 @@ type PersistedCacheEntry = [
 ];
 
 function isPersistentKey(key: unknown): key is string {
-  return typeof key === "string" && persistentKeys.has(key);
+  if (typeof key !== "string") return false;
+  const [pathname] = key.split("?");
+  return persistentKeys.has(pathname);
 }
 
 function cacheContainsDataUrl(value: unknown): boolean {

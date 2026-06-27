@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Calendar, Circle, Route } from "lucide-react";
 import { useApi } from "@/lib/swr";
+import { useDeferredReady } from "@/lib/useDeferredReady";
 
 type TripGuide = {
   id: string;
@@ -21,7 +22,8 @@ type TripGuide = {
 };
 
 export default function TripGuidesCard() {
-  const { data } = useApi<{ guides: TripGuide[] }>("/api/v1/trip-guides");
+  const ready = useDeferredReady(1200);
+  const { data } = useApi<{ guides: TripGuide[] }>("/api/v1/trip-guides", { enabled: ready });
   const guides = (data?.guides ?? []).slice(0, 2); // 只显示最近2个
 
   if (guides.length === 0) return null;

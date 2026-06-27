@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { ArrowRight, Minus, Plus, RotateCcw } from "lucide-react";
 import {
   chinaFeatures,
   dashLineFeature,
@@ -22,8 +22,8 @@ import { provinces } from "@/data/provinces";
 import Image from "next/image";
 import { cities } from "@/data/cities";
 import { memoryTime, type Memory } from "@/data/memories";
-import { useIsMobile } from "@/lib/useIsMobile";
 import { useMemoryStore } from "@/lib/memoryStore";
+import { Modal } from "@/components/ui/modal";
 
 interface ChinaMapProps {
   width?: number;
@@ -101,7 +101,6 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const isMobile = useIsMobile();
   const router = useRouter();
   const { data: memoryData } = useMemoryStore();
   const localMemories = useMemo<LocalMemoryStore>(() => memoryData?.memories ?? {}, [memoryData?.memories]);
@@ -174,11 +173,9 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
     };
   }, [height, localMemories, width]);
 
-  const activeId = selectedProvinceId ?? hoveredId;
-  const activePath = activeId ? mapPaths.find((path) => path.id === activeId) : undefined;
-  const activeStats = activeId ? provinceStats.get(activeId) : undefined;
-  const activeCover = activeStats?.latest?.image || activeStats?.latest?.photos?.[0] || null;
-  const previewFlip = activePath ? activePath.x > width * 0.58 : false;
+  const selectedPath = selectedProvinceId ? mapPaths.find((path) => path.id === selectedProvinceId) : undefined;
+  const selectedStats = selectedProvinceId ? provinceStats.get(selectedProvinceId) : undefined;
+  const selectedCover = selectedStats?.latest?.image || selectedStats?.latest?.photos?.[0] || null;
   const zoomProgress = ((zoom - minZoom) / (maxZoom - minZoom)) * 100;
   const setClampedZoom = (nextZoom: number) => {
     setZoom(Math.min(Math.max(nextZoom, minZoom), maxZoom));
@@ -192,12 +189,8 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
     router.push(`/province/${provinceId}?city=${cityId}`);
   };
 
-  // 桌面点击即进省（hover 已预览）；移动端先选中预览，再次点同省或点「进入」才跳转。
+  // 点击省份统一打开居中预览弹窗，再由弹窗进入省份页。
   const handleProvinceTap = (id: string) => {
-    if (!isMobile || selectedProvinceId === id) {
-      goProvince(id);
-      return;
-    }
     setSelectedProvinceId(id);
   };
 
@@ -388,10 +381,10 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                 ) : null,
               )}
 
-              {!reduceMotion && selectedProvinceId && activePath && (
+              {!reduceMotion && selectedProvinceId && selectedPath && (
                 <motion.path
                   key={`${selectedProvinceId}-spark`}
-                  d={activePath.d}
+                  d={selectedPath.d}
                   fill="none"
                   stroke={colors.bloom}
                   strokeWidth="2.5"
@@ -457,79 +450,62 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
             </g>
           </svg>
 
-          {activePath?.province && (
-            <motion.div
-              key={activePath.id}
-              className={`absolute z-40 w-[212px] overflow-hidden rounded-[8px] border border-dim/85 bg-cream/96 text-ink shadow-[0_14px_32px_rgba(90,102,112,0.14)] backdrop-blur ${isMobile ? "" : "pointer-events-none"}`}
-              initial={{ opacity: 0, y: 6, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.16 }}
-              style={{
-                left: `${(activePath.x / width) * 100}%`,
-                top: `${(activePath.y / height) * 100}%`,
-                transform: previewFlip
-                  ? "translate(calc(-100% - 14px), -50%)"
-                  : "translate(14px, -50%)",
-              }}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="flex items-start gap-2.5 p-2.5">
-                {activeCover ? (
-                  <Image
-                    src={activeCover}
-                    alt=""
-                    width={48}
-                    height={48}
-                    unoptimized
-                    className="pixelated h-12 w-12 shrink-0 rounded-[6px] border border-dim object-cover"
-                  />
-                ) : (
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[6px] border border-dim bg-dim/40 text-[10px] font-medium text-ink/45">
-                    未点亮
-                  </span>
-                )}
-                <div className="min-w-0 flex-1 py-0.5">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="truncate text-sm font-semibold text-ink">
-                      {activePath.province.name}
-                    </span>
-                    <span className="truncate text-[11px] text-ink/55">
-                      {activePath.province.nameEn}
-                    </span>
-                  </div>
-                  {activeStats ? (
-                    <>
-                      <div className="mt-1 text-[11px] font-medium text-bloom">
-                        {activeStats.count} 条回忆 · 点亮 {activeStats.cities.size} 城
-                      </div>
-                      {activeStats.latest && (
-                        <div className="mt-0.5 truncate text-[11px] text-ink/55">
-                          {activeStats.latest.title || activeStats.latest.text || "最近的回忆"}
-                          {activeStats.latest.date ? ` · ${activeStats.latest.date}` : ""}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="mt-1 text-[11px] text-ink/55">还没有回忆，去点亮 →</div>
-                  )}
-                </div>
-              </div>
-              {isMobile && (
-                <button
-                  type="button"
-                  className="block w-full border-t border-dim/64 bg-white/45 px-3 py-2 text-center text-[12px] font-semibold text-ink transition hover:bg-sakura/45"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    goProvince(activeId!);
-                  }}
-                >
-                  进入 {activePath.province.name} →
-                </button>
-              )}
-            </motion.div>
-          )}
         </div>
       </motion.div>
+
+      <Modal
+        open={Boolean(selectedPath?.province)}
+        onClose={() => setSelectedProvinceId(null)}
+        title={selectedPath?.province?.name}
+        description={selectedPath?.province?.nameEn}
+        size="md"
+      >
+        {selectedPath?.province && selectedProvinceId && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              {selectedCover ? (
+                <Image
+                  src={selectedCover}
+                  alt=""
+                  width={76}
+                  height={76}
+                  unoptimized
+                  className="pixelated h-[76px] w-[76px] shrink-0 rounded-[8px] border border-dim object-cover"
+                />
+              ) : (
+                <span className="grid h-[76px] w-[76px] shrink-0 place-items-center rounded-[8px] border border-dim bg-dim/40 text-xs font-medium text-ink/45">
+                  未点亮
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                {selectedStats ? (
+                  <>
+                    <p className="text-sm font-semibold text-bloom">
+                      {selectedStats.count} 条回忆 · 点亮 {selectedStats.cities.size} 城
+                    </p>
+                    {selectedStats.latest && (
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink/68">
+                        {selectedStats.latest.title || selectedStats.latest.text || "最近的回忆"}
+                        {selectedStats.latest.date ? ` · ${selectedStats.latest.date}` : ""}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm leading-6 text-ink/62">还没有回忆，可以进入省份后添加第一座城市。</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[8px] bg-sakura px-4 text-sm font-semibold text-bloom transition hover:bg-bloom hover:text-cream"
+              onClick={() => goProvince(selectedProvinceId)}
+            >
+              进入 {selectedPath.province.name}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </Modal>
     </motion.div>
   );
 }

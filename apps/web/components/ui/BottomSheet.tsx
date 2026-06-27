@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type BottomSheetProps = {
   open: boolean;
@@ -77,7 +78,7 @@ export function BottomSheet({
   const snapHeight = snapPoints[snapIndex] ?? snapPoints[0];
   const snapVh = `${snapHeight * 100}dvh`;
 
-  return (
+  const sheet = (
     <AnimatePresence>
       {open && (
         <>
@@ -93,6 +94,7 @@ export function BottomSheet({
 
           <motion.div
             ref={sheetRef}
+            data-pull-refresh-ignore="true"
             className={`fixed inset-x-0 bottom-0 z-[60] flex max-h-[96dvh] flex-col rounded-t-[16px] border border-dim bg-cream shadow-[0_-18px_44px_rgba(90,102,112,0.18)] lg:hidden ${sheetClassName}`}
             style={{ height: snapVh, paddingBottom: "env(safe-area-inset-bottom)" }}
             initial={{ y: "100%" }}
@@ -138,7 +140,7 @@ export function BottomSheet({
             )}
 
             {/* 内容区原生滚动 */}
-            <div className={`min-h-0 flex-1 overflow-y-auto px-5 ${footer ? "pb-4" : "pb-6"} ${contentClassName}`}>
+            <div className={`min-h-0 flex-1 overscroll-contain overflow-y-auto px-5 ${footer ? "pb-4" : "pb-[calc(env(safe-area-inset-bottom)+2rem)]"} ${contentClassName}`}>
               {children}
             </div>
 
@@ -152,4 +154,7 @@ export function BottomSheet({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === "undefined") return sheet;
+  return createPortal(sheet, document.body);
 }

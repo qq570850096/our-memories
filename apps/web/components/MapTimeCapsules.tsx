@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Lock } from "lucide-react";
 import { useApi } from "@/lib/swr";
 import { daysUntil } from "@/lib/dateFormat";
+import { useDeferredReady } from "@/lib/useDeferredReady";
 
 type TimeCapsule = {
   id: string;
@@ -13,7 +14,8 @@ type TimeCapsule = {
 };
 
 export function MapTimeCapsules() {
-  const { data } = useApi<{ timeCapsules: TimeCapsule[] }>("/api/v1/time-capsules");
+  const ready = useDeferredReady(900);
+  const { data } = useApi<{ timeCapsules: TimeCapsule[] }>("/api/v1/time-capsules", { enabled: ready });
   const capsules = useMemo(
     () =>
       (data?.timeCapsules ?? [])
