@@ -14,6 +14,11 @@ type PresignResponse = {
   publicUrl: string;
 };
 
+type BackendUploadResponse = {
+  key: string;
+  url: string;
+};
+
 const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.82;
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 压缩后硬上限，挡住超大文件
@@ -47,6 +52,14 @@ function readThemeColor(token: string) {
   return window.getComputedStyle(document.documentElement).getPropertyValue(`--color-${token}`).trim();
 }
 
+const blobToDataURL = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")), { once: true });
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("Image read failed")), { once: true });
+    reader.readAsDataURL(blob);
+  });
+
 // 把图片压成 JPEG（svg 直接透传），返回 blob + 尺寸 + contentType。
 async function compressImage(file: File): Promise<CompressedImage> {
   if (file.type === "image/svg+xml") {
@@ -77,8 +90,7 @@ async function compressImage(file: File): Promise<CompressedImage> {
 }
 
 /**
- * 统一图片上传：压缩 → 向后端取预签名 PUT URL → 直传 OSS。
- * 失败时抛出错误，由调用方用 toast/status 提示用户，避免静默保存大体积 data URL。
+ * 统一图片上传：压缩 → 优先直传 OSS；失败时交给后端本地兜底，等待后台任务同步 OSS。
  */
 export async function uploadImage(file: File, folder: string): Promise<UploadedImage> {
   const { blob, width, height, contentType } = await compressImage(file);
@@ -103,7 +115,17 @@ export async function uploadImage(file: File, folder: string): Promise<UploadedI
     return { url: presign.publicUrl, key: presign.key, mimeType: contentType, width, height };
   } catch (error) {
     console.warn("Direct image upload failed.", error);
-    throw error instanceof Error ? error : new Error("图片上传失败，请稍后再试");
+    try {
+      const dataUrl = await blobToDataURL(blob);
+      const fallback = await apiJson<BackendUploadResponse>("/api/v1/upload", {
+        method: "POST",
+        body: JSON.stringify({ folder, dataUrl }),
+      });
+      return { url: fallback.url, key: fallback.key, mimeType: contentType, width, height };
+    } catch (fallbackError) {
+      console.warn("Backend image fallback failed.", fallbackError);
+      throw fallbackError instanceof Error ? fallbackError : new Error("图片上传失败，请稍后再试");
+    }
   }
 }
 
@@ -112,7 +134,7 @@ export function uploadImages(files: File[], folder: string): Promise<UploadedIma
   return Promise.all(files.map((file) => uploadImage(file, folder)));
 }
 
-/** 保存失败时回滚：删除已直传的对象（base64 回退无 key，自动跳过）。 */
+/** 保存失败时回滚：删除已上传或本地兜底的对象。 */
 export async function deleteUploaded(keys: string[]): Promise<void> {
   await Promise.all(
     keys

@@ -27,6 +27,8 @@ type Config struct {
 	S3Bucket          string
 	S3PublicBaseURL   string
 	S3ObjectACL       string
+	LocalImageDir     string
+	PhotoSyncInterval string
 }
 
 var cfg *Config
@@ -53,6 +55,8 @@ func Load() {
 		S3Bucket:          getEnv("S3_BUCKET", "our-memories"),
 		S3PublicBaseURL:   getEnv("S3_PUBLIC_BASE_URL", ""),
 		S3ObjectACL:       getEnv("S3_OBJECT_ACL", ""),
+		LocalImageDir:     getEnv("LOCAL_IMAGE_DIR", "./data/images"),
+		PhotoSyncInterval: getEnv("PHOTO_SYNC_INTERVAL", "10m"),
 	}
 
 	if len(cfg.JWTSecret) < 24 {

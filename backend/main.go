@@ -12,6 +12,7 @@ import (
 	"our-memories-backend/config"
 	"our-memories-backend/db"
 	"our-memories-backend/handlers"
+	"our-memories-backend/jobs"
 	"our-memories-backend/middleware"
 	"our-memories-backend/storage"
 )
@@ -21,6 +22,7 @@ func main() {
 	db.Init()
 	db.EnsureAdminFromEnv()
 	storage.InitS3()
+	jobs.StartPhotoSync()
 
 	r := gin.Default()
 
@@ -30,6 +32,7 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true})
 	})
+	r.GET("/local-images/*key", serveLocalImage)
 
 	api := r.Group("/api/v1")
 	{
@@ -132,6 +135,20 @@ func main() {
 	if err := r.Run(":" + config.Get().Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
+}
+
+func serveLocalImage(c *gin.Context) {
+	key := strings.TrimPrefix(c.Param("key"), "/")
+	filePath, ok := storage.LocalPathForKey(key)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		return
+	}
+	if stat, err := os.Stat(filePath); err != nil || stat.IsDir() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		return
+	}
+	c.File(filePath)
 }
 
 func registerStaticApps(r *gin.Engine) {

@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"mime"
+	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +24,8 @@ import (
 
 var s3Client *s3.S3
 var s3PathStyleClient *s3.S3
+
+const localImageURLPrefix = "/local-images/"
 
 // allowedFolders 限定对象 key 的二级目录，防止客户端传入任意 folder 造成注入/越界。
 var allowedFolders = map[string]bool{
@@ -74,6 +80,46 @@ func publicURLForKey(cfg *config.Config, key string) string {
 		return strings.TrimRight(cfg.S3PublicBaseURL, "/") + "/" + key
 	}
 	return fmt.Sprintf("%s/%s/%s", strings.TrimRight(cfg.S3Endpoint, "/"), strings.Trim(cfg.S3Bucket, "/"), key)
+}
+
+func localURLForKey(key string) string {
+	return localImageURLPrefix + strings.TrimLeft(key, "/")
+}
+
+// LocalKeyFromURL returns the object key for a server-local fallback image URL.
+func LocalKeyFromURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err == nil && parsed.Path != "" {
+		rawURL = parsed.Path
+	}
+	if !strings.HasPrefix(rawURL, localImageURLPrefix) {
+		return ""
+	}
+	return cleanObjectKeyFromURLPath(strings.TrimPrefix(rawURL, localImageURLPrefix))
+}
+
+// LocalPathForKey resolves a local fallback object key to an on-disk path.
+func LocalPathForKey(key string) (string, bool) {
+	key = cleanObjectKeyFromURLPath(key)
+	if key == "" {
+		return "", false
+	}
+	base, err := filepath.Abs(config.Get().LocalImageDir)
+	if err != nil {
+		return "", false
+	}
+	filePath, err := filepath.Abs(filepath.Join(base, filepath.FromSlash(key)))
+	if err != nil {
+		return "", false
+	}
+	if filePath != base && !strings.HasPrefix(filePath, base+string(os.PathSeparator)) {
+		return "", false
+	}
+	return filePath, true
 }
 
 // PublicURLForKey returns the public URL for an existing object key in the
@@ -257,6 +303,16 @@ func DeletePhotoObject(key, url string) error {
 		key = KeyFromURL(url)
 	}
 	if key == "" {
+		key = LocalKeyFromURL(url)
+	}
+	if key == "" {
+		return nil
+	}
+	if LocalKeyFromURL(url) != "" {
+		if err := DeleteLocalObject(key); err != nil {
+			log.Printf("delete local object failed (key=%s): %v", key, err)
+			return err
+		}
 		return nil
 	}
 	if err := DeleteObject(key); err != nil {
@@ -275,7 +331,10 @@ func DeleteObjectByURL(url string) error {
 // 非 data:image/ 前缀的值（已是 OSS URL / 外链）原样返回，并尽量从 URL 反解 key。
 func UploadImageWithKey(spaceID, folder, dataURL string) (string, string, error) {
 	if !strings.HasPrefix(dataURL, "data:image/") {
-		return dataURL, KeyFromURL(dataURL), nil
+		if key := KeyFromURL(dataURL); key != "" {
+			return dataURL, key, nil
+		}
+		return dataURL, LocalKeyFromURL(dataURL), nil
 	}
 
 	parts := strings.SplitN(dataURL, ",", 2)
@@ -312,17 +371,78 @@ func UploadImageWithKey(spaceID, folder, dataURL string) (string, string, error)
 		}
 
 		if _, err = s3Client.PutObject(input); err != nil {
-			return "", "", err
+			log.Printf("upload to object storage failed; using local fallback (key=%s): %v", key, err)
+		} else {
+			return publicURLForKey(cfg, key), key, nil
 		}
-
-		return publicURLForKey(cfg, key), key, nil
 	}
 
-	return dataURL, "", nil
+	if err := SaveLocalImage(key, data); err != nil {
+		return "", "", err
+	}
+	return localURLForKey(key), key, nil
 }
 
 // UploadImage 返回上传后的公共 URL，保留给不需要持久化 object key 的调用方。
 func UploadImage(spaceID, folder, dataURL string) (string, error) {
 	url, _, err := UploadImageWithKey(spaceID, folder, dataURL)
 	return url, err
+}
+
+// SaveLocalImage writes a fallback image under LOCAL_IMAGE_DIR using the object key.
+func SaveLocalImage(key string, data []byte) error {
+	filePath, ok := LocalPathForKey(key)
+	if !ok {
+		return fmt.Errorf("invalid local image key")
+	}
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// UploadLocalObjectToS3 uploads a server-local fallback image to object storage using the same key.
+func UploadLocalObjectToS3(key string) (string, error) {
+	if s3Client == nil {
+		return "", fmt.Errorf("object storage not configured")
+	}
+	filePath, ok := LocalPathForKey(key)
+	if !ok {
+		return "", fmt.Errorf("invalid local image key")
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(filePath))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+
+	cfg := config.Get()
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(cfg.S3Bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String(contentType),
+	}
+	if cfg.S3ObjectACL != "" {
+		input.ACL = aws.String(cfg.S3ObjectACL)
+	}
+	if _, err := s3Client.PutObject(input); err != nil {
+		return "", err
+	}
+	return publicURLForKey(cfg, key), nil
+}
+
+// DeleteLocalObject removes a server-local fallback image.
+func DeleteLocalObject(key string) error {
+	filePath, ok := LocalPathForKey(key)
+	if !ok {
+		return nil
+	}
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

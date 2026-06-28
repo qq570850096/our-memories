@@ -81,5 +81,10 @@ func DeleteUpload(c *gin.Context) {
 		utils.Error(c, 500, "Delete failed")
 		return
 	}
+	if err := storage.DeleteLocalObject(key); err != nil {
+		log.Printf("delete local upload failed (key=%s): %v", key, err)
+		utils.Error(c, 500, "Delete failed")
+		return
+	}
 	utils.Success(c, gin.H{"ok": true})
 }
