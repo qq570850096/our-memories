@@ -619,10 +619,10 @@ function useMapRitualStats() {
 export function MobileRitualStats() {
   const stats = useMapRitualStats();
   const badges = [
-    { label: "在一起", value: stats.days, unit: "天", accent: "text-bloom", fill: "bg-sakura" },
-    { label: "省份", value: stats.provinceCount, unit: "枚", accent: "text-sky", fill: "bg-sky" },
-    { label: "城市", value: stats.cityCount, unit: "座", accent: "text-ink", fill: "bg-mint" },
-    { label: "回忆", value: stats.memoryCount, unit: "条", accent: "text-bloom", fill: "bg-bloom" },
+    { label: "在一起", value: stats.days, unit: "天", accent: "text-bloom" },
+    { label: "省份", value: stats.provinceCount, unit: "枚", accent: "text-sky" },
+    { label: "城市", value: stats.cityCount, unit: "座", accent: "text-ink" },
+    { label: "回忆", value: stats.memoryCount, unit: "条", accent: "text-bloom" },
   ];
 
   return (
@@ -635,7 +635,7 @@ export function MobileRitualStats() {
               className="relative min-w-0 border-2 border-ink/18 bg-cream/88 px-1.5 pb-2 pt-1.5 text-center shadow-[3px_3px_0_rgba(90,102,112,0.16)] backdrop-blur"
             >
               <span className="absolute -right-1 -top-1 h-2 w-2 border border-ink/15 bg-white/72" />
-              <PixelMedal className="mx-auto" fillClassName={badge.fill} variant={index} />
+              <PixelFlower className="mx-auto" variant={index} />
               <p className="mt-1 truncate text-[10px] font-semibold leading-none text-ink/48">{badge.label}</p>
               <p className={`mt-1 truncate text-lg font-semibold leading-none ${badge.accent}`}>
                 {badge.value}
@@ -656,35 +656,94 @@ export function MobileRitualStats() {
   );
 }
 
-function PixelMedal({
+function PixelFlower({
   className,
-  fillClassName,
   variant,
 }: Readonly<{
   className?: string;
-  fillClassName: string;
   variant: number;
 }>) {
-  const patterns = [
-    [1, 2, 4, 5, 6, 7, 8, 10, 13],
-    [1, 2, 4, 6, 8, 9, 10, 13, 14],
-    [1, 2, 5, 6, 8, 10, 12, 13, 14],
-    [1, 2, 4, 5, 6, 9, 10, 13],
-  ];
-  const active = new Set(patterns[variant % patterns.length]);
+  const palette = [
+    {
+      petal: "var(--color-sakura)",
+      petalDeep: "var(--color-bloom)",
+      core: "var(--color-marigold)",
+      leaf: "var(--color-mint)",
+      leafDeep: "var(--color-leaf)",
+    },
+    {
+      petal: "var(--color-sky-pale)",
+      petalDeep: "var(--color-sky)",
+      core: "var(--color-sunshine)",
+      leaf: "var(--color-mint)",
+      leafDeep: "var(--color-leaf)",
+    },
+    {
+      petal: "var(--color-lavender)",
+      petalDeep: "var(--color-dusk)",
+      core: "var(--color-sakura)",
+      leaf: "var(--color-mint)",
+      leafDeep: "var(--color-leaf)",
+    },
+    {
+      petal: "var(--color-sunlit)",
+      petalDeep: "var(--color-ember)",
+      core: "var(--color-bloom)",
+      leaf: "var(--color-mint)",
+      leafDeep: "var(--color-leaf)",
+    },
+  ][variant % 4];
 
   return (
-    <span
-      className={`grid h-7 w-7 grid-cols-4 grid-rows-4 gap-[1px] border border-ink/15 bg-white/50 p-[2px] ${className ?? ""}`}
+    <svg
+      className={`pixelated h-8 w-8 ${className ?? ""}`}
+      viewBox="0 0 32 32"
       aria-hidden="true"
+      shapeRendering="crispEdges"
     >
-      {Array.from({ length: 16 }).map((_, index) => (
-        <span
-          key={index}
-          className={active.has(index) ? fillClassName : "bg-transparent"}
-        />
-      ))}
-    </span>
+      <rect x="6" y="25" width="20" height="3" fill="var(--color-dim)" opacity="0.5" />
+      <rect x="15" y="17" width="3" height="9" fill={palette.leafDeep} />
+      <rect x="11" y="22" width="5" height="3" fill={palette.leaf} />
+      <rect x="18" y="20" width="5" height="3" fill={palette.leaf} />
+      {variant % 4 === 0 && (
+        <>
+          <rect x="12" y="5" width="8" height="5" fill={palette.petal} />
+          <rect x="8" y="10" width="6" height="7" fill={palette.petalDeep} />
+          <rect x="18" y="10" width="6" height="7" fill={palette.petalDeep} />
+          <rect x="12" y="17" width="8" height="5" fill={palette.petal} />
+        </>
+      )}
+      {variant % 4 === 1 && (
+        <>
+          <rect x="13" y="4" width="6" height="6" fill={palette.petalDeep} />
+          <rect x="7" y="9" width="6" height="6" fill={palette.petal} />
+          <rect x="19" y="9" width="6" height="6" fill={palette.petal} />
+          <rect x="10" y="16" width="5" height="5" fill={palette.petalDeep} />
+          <rect x="17" y="16" width="5" height="5" fill={palette.petalDeep} />
+        </>
+      )}
+      {variant % 4 === 2 && (
+        <>
+          <rect x="10" y="5" width="5" height="7" fill={palette.petal} />
+          <rect x="17" y="5" width="5" height="7" fill={palette.petal} />
+          <rect x="7" y="12" width="6" height="6" fill={palette.petalDeep} />
+          <rect x="19" y="12" width="6" height="6" fill={palette.petalDeep} />
+          <rect x="13" y="17" width="6" height="5" fill={palette.petal} />
+        </>
+      )}
+      {variant % 4 === 3 && (
+        <>
+          <rect x="11" y="4" width="10" height="4" fill={palette.petalDeep} />
+          <rect x="8" y="8" width="16" height="5" fill={palette.petal} />
+          <rect x="7" y="13" width="18" height="5" fill={palette.petalDeep} />
+          <rect x="11" y="18" width="10" height="4" fill={palette.petal} />
+        </>
+      )}
+      <rect x="13" y="11" width="6" height="6" fill={palette.core} />
+      <rect x="15" y="13" width="2" height="2" fill="var(--color-ink)" opacity="0.35" />
+      <rect x="6" y="6" width="2" height="2" fill="white" opacity="0.72" />
+      <rect x="24" y="7" width="2" height="2" fill="white" opacity="0.55" />
+    </svg>
   );
 }
 

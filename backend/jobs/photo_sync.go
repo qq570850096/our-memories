@@ -60,6 +60,7 @@ func StartPhotoSync() {
 		return
 	}
 
+	log.Printf("photo sync scheduled: interval=%s local_dir=%s", interval, config.Get().LocalImageDir)
 	go func() {
 		time.Sleep(3 * time.Second)
 		runAndLogPhotoSync()
@@ -73,14 +74,14 @@ func StartPhotoSync() {
 }
 
 func runAndLogPhotoSync() {
+	start := time.Now()
+	log.Printf("photo sync started")
 	updated, err := RunPhotoSyncOnce()
 	if err != nil {
-		log.Printf("photo sync completed with errors after updating %d row(s): %v", updated, err)
+		log.Printf("photo sync finished with errors: updated=%d duration=%s err=%v", updated, time.Since(start).Round(time.Millisecond), err)
 		return
 	}
-	if updated > 0 {
-		log.Printf("photo sync updated %d row(s)", updated)
-	}
+	log.Printf("photo sync finished: updated=%d duration=%s", updated, time.Since(start).Round(time.Millisecond))
 }
 
 // RunPhotoSyncOnce uploads inline/local fallback images and updates database URLs.
