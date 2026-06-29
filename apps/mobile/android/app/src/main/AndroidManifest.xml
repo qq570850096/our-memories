@@ -35,11 +35,22 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
+        <service
+            android:name=".JPushCoreService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":pushcore">
+            <intent-filter>
+                <action android:name="cn.jiguang.user.service.action" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".JPushReceiver"
-            android:exported="true">
+            android:enabled="true"
+            android:exported="false">
             <intent-filter>
-                <action android:name="cn.jpush.android.intent.SERVICE_MESSAGE" />
+                <action android:name="cn.jpush.android.intent.RECEIVE_MESSAGE" />
                 <category android:name="${applicationId}" />
             </intent-filter>
         </receiver>
