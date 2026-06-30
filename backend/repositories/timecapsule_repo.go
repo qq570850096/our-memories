@@ -2,7 +2,9 @@ package repositories
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 	"our-memories-backend/models"
@@ -11,14 +13,18 @@ import (
 var ErrTimeCapsuleNotFound = sql.ErrNoRows
 
 type TimeCapsuleRecord struct {
-	ID          string `gorm:"column:id;primaryKey"`
-	SpaceID     string `gorm:"column:space_id"`
-	Title       string `gorm:"column:title"`
-	OpenDate    string `gorm:"column:open_date"`
-	Content     string `gorm:"column:content"`
-	CreatedByID string `gorm:"column:created_by_id"`
-	IsOpened    int    `gorm:"column:is_opened"`
-	CreatedAt   string `gorm:"column:created_at"`
+	ID              string `gorm:"column:id;primaryKey"`
+	SpaceID         string `gorm:"column:space_id"`
+	Title           string `gorm:"column:title"`
+	OpenDate        string `gorm:"column:open_date"`
+	Content         string `gorm:"column:content"`
+	VoiceURL        string `gorm:"column:voice_url"`
+	OpenMode        string `gorm:"column:open_mode"`
+	OpenedByUserIDs string `gorm:"column:opened_by_user_ids"`
+	RevealedAt      string `gorm:"column:revealed_at"`
+	CreatedByID     string `gorm:"column:created_by_id"`
+	IsOpened        int    `gorm:"column:is_opened"`
+	CreatedAt       string `gorm:"column:created_at"`
 }
 
 func (TimeCapsuleRecord) TableName() string {
@@ -69,14 +75,18 @@ func (r *TimeCapsuleRepository) List(spaceID string) ([]models.TimeCapsule, erro
 	capsules := make([]models.TimeCapsule, 0, len(records))
 	for _, record := range records {
 		capsules = append(capsules, models.TimeCapsule{
-			ID:          record.ID,
-			SpaceID:     record.SpaceID,
-			Title:       record.Title,
-			OpenDate:    record.OpenDate,
-			Content:     record.Content,
-			CreatedByID: record.CreatedByID,
-			IsOpened:    record.IsOpened == 1,
-			CreatedAt:   record.CreatedAt,
+			ID:              record.ID,
+			SpaceID:         record.SpaceID,
+			Title:           record.Title,
+			OpenDate:        record.OpenDate,
+			Content:         record.Content,
+			VoiceURL:        record.VoiceURL,
+			OpenMode:        normalizeTimeCapsuleOpenMode(record.OpenMode),
+			OpenedByUserIDs: parseOpenedByUserIDs(record.OpenedByUserIDs),
+			RevealedAt:      record.RevealedAt,
+			CreatedByID:     record.CreatedByID,
+			IsOpened:        record.IsOpened == 1,
+			CreatedAt:       record.CreatedAt,
 		})
 	}
 	return capsules, nil
@@ -106,6 +116,34 @@ func (r *TimeCapsuleRepository) OpenDate(capsuleID string, spaceID string) (stri
 		return "", ErrTimeCapsuleNotFound
 	}
 	return record.OpenDate, err
+}
+
+func (r *TimeCapsuleRepository) ByID(capsuleID string, spaceID string) (models.TimeCapsule, error) {
+	var record TimeCapsuleRecord
+	err := r.db.
+		Where("id = ? AND space_id = ?", capsuleID, spaceID).
+		First(&record).
+		Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.TimeCapsule{}, ErrTimeCapsuleNotFound
+	}
+	if err != nil {
+		return models.TimeCapsule{}, err
+	}
+	return models.TimeCapsule{
+		ID:              record.ID,
+		SpaceID:         record.SpaceID,
+		Title:           record.Title,
+		OpenDate:        record.OpenDate,
+		Content:         record.Content,
+		VoiceURL:        record.VoiceURL,
+		OpenMode:        normalizeTimeCapsuleOpenMode(record.OpenMode),
+		OpenedByUserIDs: parseOpenedByUserIDs(record.OpenedByUserIDs),
+		RevealedAt:      record.RevealedAt,
+		CreatedByID:     record.CreatedByID,
+		IsOpened:        record.IsOpened == 1,
+		CreatedAt:       record.CreatedAt,
+	}, nil
 }
 
 func (r *TimeCapsuleRepository) Create(capsule TimeCapsuleRecord, photos []TimeCapsulePhotoRecord) error {
@@ -151,17 +189,70 @@ func (r *TimeCapsuleRepository) Update(
 	})
 }
 
-func (r *TimeCapsuleRepository) MarkOpened(capsuleID string, spaceID string) error {
-	result := r.db.Model(&TimeCapsuleRecord{}).
-		Where("id = ? AND space_id = ?", capsuleID, spaceID).
-		Update("is_opened", 1)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return ErrTimeCapsuleNotFound
-	}
-	return nil
+func (r *TimeCapsuleRepository) MarkOpened(capsuleID string, spaceID string, userID string) (models.TimeCapsule, error) {
+	var capsule models.TimeCapsule
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var record TimeCapsuleRecord
+		err := tx.
+			Where("id = ? AND space_id = ?", capsuleID, spaceID).
+			First(&record).
+			Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTimeCapsuleNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		openMode := normalizeTimeCapsuleOpenMode(record.OpenMode)
+		openedBy := parseOpenedByUserIDs(record.OpenedByUserIDs)
+		if userID != "" && !containsString(openedBy, userID) {
+			openedBy = append(openedBy, userID)
+		}
+
+		isOpened := record.IsOpened == 1
+		revealedAt := record.RevealedAt
+		if openMode != "together" || len(openedBy) >= 2 {
+			isOpened = true
+			if revealedAt == "" {
+				revealedAt = time.Now().UTC().Format(time.RFC3339)
+			}
+		}
+
+		openedByJSON, _ := json.Marshal(openedBy)
+		updates := map[string]any{
+			"open_mode":          openMode,
+			"opened_by_user_ids": string(openedByJSON),
+			"is_opened":          0,
+			"revealed_at":        revealedAt,
+		}
+		if isOpened {
+			updates["is_opened"] = 1
+		}
+		if err := tx.Model(&TimeCapsuleRecord{}).
+			Where("id = ? AND space_id = ?", capsuleID, spaceID).
+			Updates(updates).
+			Error; err != nil {
+			return err
+		}
+
+		capsule = models.TimeCapsule{
+			ID:              record.ID,
+			SpaceID:         record.SpaceID,
+			Title:           record.Title,
+			OpenDate:        record.OpenDate,
+			Content:         record.Content,
+			VoiceURL:        record.VoiceURL,
+			OpenMode:        openMode,
+			OpenedByUserIDs: openedBy,
+			RevealedAt:      revealedAt,
+			CreatedByID:     record.CreatedByID,
+			IsOpened:        isOpened,
+			CreatedAt:       record.CreatedAt,
+		}
+		return nil
+	})
+	return capsule, err
 }
 
 func (r *TimeCapsuleRepository) Delete(capsuleID string, spaceID string) error {
@@ -173,6 +264,30 @@ func (r *TimeCapsuleRepository) Delete(capsuleID string, spaceID string) error {
 		return ErrTimeCapsuleNotFound
 	}
 	return nil
+}
+
+func normalizeTimeCapsuleOpenMode(value string) string {
+	if value == "together" {
+		return "together"
+	}
+	return "single"
+}
+
+func parseOpenedByUserIDs(value string) []string {
+	ids := []string{}
+	if err := json.Unmarshal([]byte(value), &ids); err != nil || ids == nil {
+		return []string{}
+	}
+	return ids
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *TimeCapsuleRepository) PhotosForCapsule(capsuleID string) ([]TimeCapsulePhotoRecord, error) {

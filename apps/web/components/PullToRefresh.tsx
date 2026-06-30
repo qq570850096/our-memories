@@ -34,7 +34,7 @@ function refreshableApiKeyForPath(pathname: string, key: unknown) {
   if (path === "/anniversaries") return apiPath === "/api/v1/anniversary-cards";
   if (path === "/time-capsule") return apiPath === "/api/v1/time-capsules";
   if (path === "/whispers") return apiPath === "/api/v1/whispers";
-  if (path === "/favorites") return apiPath === "/api/v1/auxiliary-items" && key.includes("kind=favorite");
+  if (path === "/favorites") return apiPath === "/api/v1/auxiliary-items" && key.includes("kind=diary");
 
   return false;
 }

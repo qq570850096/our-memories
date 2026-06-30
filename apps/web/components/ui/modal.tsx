@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type FocusEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 type ModalSize = "sm" | "md" | "lg" | "xl";
@@ -44,6 +44,8 @@ export function Modal({
   closeOnOverlay = true,
   children,
 }: Readonly<ModalProps>) {
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -62,10 +64,45 @@ export function Modal({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const updateInset = () => {
+      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setKeyboardInset(inset);
+    };
+
+    updateInset();
+    viewport.addEventListener("resize", updateInset);
+    viewport.addEventListener("scroll", updateInset);
+    return () => {
+      viewport.removeEventListener("resize", updateInset);
+      viewport.removeEventListener("scroll", updateInset);
+      setKeyboardInset(0);
+    };
+  }, [open]);
+
+  const handleFocusCapture = (event: FocusEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.matches("input, textarea, select")) return;
+    window.setTimeout(() => {
+      target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }, 80);
+  };
+
   const modal = (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[70] grid place-items-center px-4">
+        <div
+          className="fixed inset-0 z-[70] grid place-items-center px-4"
+          style={{
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            paddingBottom: `max(1rem, calc(env(safe-area-inset-bottom) + ${keyboardInset}px))`,
+          }}
+        >
           <motion.div
             className="absolute inset-0 bg-ink/28 backdrop-blur-[2px]"
             initial={{ opacity: 0 }}
@@ -83,6 +120,7 @@ export function Modal({
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={(e) => e.stopPropagation()}
+            onFocusCapture={handleFocusCapture}
           >
             {(title || showClose) && (
               <div className="flex items-start justify-between gap-3 border-b border-dim/70 px-5 py-4">

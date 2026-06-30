@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil } from "lucide-react";
+import { CalendarDays, Pencil } from "lucide-react";
 import { featureOfProvince, makePath, makeProjectionForProvince } from "@/lib/geo";
 import type { City } from "@/data/cities";
 import { provinces } from "@/data/provinces";
@@ -9,6 +9,7 @@ import type { Memory } from "@/data/memories";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { MemoryContentView } from "@/components/memories/MemoryContentView";
 import { Spinner } from "@/components/ui/spinner";
+import { relatedMemories } from "@/lib/memoryApi";
 import { useContentEditAccess, useMemoryEditAccess } from "@/lib/useContentEditAccess";
 
 type MemoryDetailSheetProps = {
@@ -17,6 +18,7 @@ type MemoryDetailSheetProps = {
   memory: Memory | null;
   city?: City;
   onUpdatePartnerNote?: (memory: Memory, partnerNote: string) => Promise<void>;
+  onOpenMemory?: (memory: Memory) => void;
 };
 
 const MINI_MAP_WIDTH = 320;
@@ -32,6 +34,7 @@ export function MemoryDetailSheet({
   memory,
   city,
   onUpdatePartnerNote,
+  onOpenMemory,
 }: Readonly<MemoryDetailSheetProps>) {
   const canUseEditSurface = useContentEditAccess();
   const access = useMemoryEditAccess(memory);
@@ -40,6 +43,9 @@ export function MemoryDetailSheet({
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [noteError, setNoteError] = useState("");
+  const [relatedItems, setRelatedItems] = useState<Memory[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -52,6 +58,39 @@ export function MemoryDetailSheet({
     }, 0);
 
     return () => window.clearTimeout(timer);
+  }, [memory, open]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!open || !memory) {
+        setRelatedItems([]);
+        setRelatedLoading(false);
+        setRelatedError("");
+        return;
+      }
+
+      setRelatedLoading(true);
+      setRelatedError("");
+      relatedMemories(memory.id)
+        .then((items) => {
+          if (!cancelled) setRelatedItems(items);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRelatedItems([]);
+            setRelatedError("相关回忆读取失败");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setRelatedLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [memory, open]);
 
   const province = useMemo(
@@ -134,6 +173,52 @@ export function MemoryDetailSheet({
           )}
 
           <MemoryContentView memory={memory} cityName={city?.name} />
+
+          {(relatedLoading || relatedError || relatedItems.length > 0) && (
+            <section className="rounded-[7px] border border-dim/80 bg-white/54 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-bloom" />
+                  <h3 className="text-sm font-semibold text-ink">那年同一天</h3>
+                </div>
+                {relatedLoading && <Spinner size="sm" />}
+              </div>
+              {relatedError && <p className="mt-3 text-xs font-semibold text-rose">{relatedError}</p>}
+              {relatedItems.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {relatedItems.map((item) => {
+                    const body = (
+                      <>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <h4 className="truncate text-sm font-semibold text-ink">{item.title || item.city}</h4>
+                          <span className="shrink-0 text-xs font-semibold text-ink/42">{item.date}</span>
+                        </div>
+                        <p className="mt-1 text-xs font-semibold text-sky">
+                          {[item.city, item.placeName].filter(Boolean).join(" · ")}
+                        </p>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink/62">{item.text}</p>
+                      </>
+                    );
+
+                    return onOpenMemory ? (
+                      <button
+                        key={item.id}
+                        className="w-full rounded-[6px] border border-dim/70 bg-cream/64 px-3 py-2 text-left transition hover:border-sakura hover:bg-sakura/24"
+                        type="button"
+                        onClick={() => onOpenMemory(item)}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div key={item.id} className="rounded-[6px] border border-dim/70 bg-cream/64 px-3 py-2">
+                        {body}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
 
           {canAddNote && (
             <div className="rounded-[7px] border border-sakura/70 bg-cream/72 p-3">

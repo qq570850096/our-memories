@@ -17,6 +17,9 @@ type AnniversaryCardRecord struct {
 	Date         string `gorm:"column:date"`
 	Note         string `gorm:"column:note"`
 	CoverPhotoID string `gorm:"column:cover_photo_id"`
+	VoiceURL     string `gorm:"column:voice_url"`
+	BGMURL       string `gorm:"column:bgm_url"`
+	BGMPreset    string `gorm:"column:bgm_preset"`
 	RepeatYearly int    `gorm:"column:repeat_yearly"`
 	Pinned       int    `gorm:"column:pinned"`
 	SortOrder    int    `gorm:"column:sort_order"`
@@ -64,6 +67,21 @@ func (r *AnniversaryRepository) CreatedByID(cardID string, spaceID string) (stri
 	return record.CreatedByID, err
 }
 
+func (r *AnniversaryRepository) ByID(spaceID string, cardID string) (models.AnniversaryCard, error) {
+	var record AnniversaryCardRecord
+	err := r.db.
+		Where("id = ? AND space_id = ?", cardID, spaceID).
+		First(&record).
+		Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.AnniversaryCard{}, ErrAnniversaryCardNotFound
+	}
+	if err != nil {
+		return models.AnniversaryCard{}, err
+	}
+	return anniversaryCardModel(record), nil
+}
+
 func (r *AnniversaryRepository) List(spaceID string) ([]models.AnniversaryCard, error) {
 	var records []AnniversaryCardRecord
 	if err := r.db.
@@ -76,20 +94,7 @@ func (r *AnniversaryRepository) List(spaceID string) ([]models.AnniversaryCard, 
 
 	cards := make([]models.AnniversaryCard, 0, len(records))
 	for _, record := range records {
-		cards = append(cards, models.AnniversaryCard{
-			ID:           record.ID,
-			SpaceID:      record.SpaceID,
-			Title:        record.Title,
-			Date:         record.Date,
-			Note:         record.Note,
-			CoverPhotoID: record.CoverPhotoID,
-			RepeatYearly: record.RepeatYearly == 1,
-			Pinned:       record.Pinned == 1,
-			SortOrder:    record.SortOrder,
-			CreatedByID:  record.CreatedByID,
-			CreatedAt:    record.CreatedAt,
-			UpdatedAt:    record.UpdatedAt,
-		})
+		cards = append(cards, anniversaryCardModel(record))
 	}
 	return cards, nil
 }
@@ -104,6 +109,26 @@ func (r *AnniversaryRepository) Create(card AnniversaryCardRecord, photos []Anni
 		}
 		return tx.Omit("created_at").Create(&photos).Error
 	})
+}
+
+func anniversaryCardModel(record AnniversaryCardRecord) models.AnniversaryCard {
+	return models.AnniversaryCard{
+		ID:           record.ID,
+		SpaceID:      record.SpaceID,
+		Title:        record.Title,
+		Date:         record.Date,
+		Note:         record.Note,
+		CoverPhotoID: record.CoverPhotoID,
+		VoiceURL:     record.VoiceURL,
+		BGMURL:       record.BGMURL,
+		BGMPreset:    record.BGMPreset,
+		RepeatYearly: record.RepeatYearly == 1,
+		Pinned:       record.Pinned == 1,
+		SortOrder:    record.SortOrder,
+		CreatedByID:  record.CreatedByID,
+		CreatedAt:    record.CreatedAt,
+		UpdatedAt:    record.UpdatedAt,
+	}
 }
 
 func (r *AnniversaryRepository) Update(

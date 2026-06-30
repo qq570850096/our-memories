@@ -29,6 +29,7 @@ type WhisperReplyRecord struct {
 	WhisperID string `gorm:"column:whisper_id"`
 	UserID    string `gorm:"column:user_id"`
 	Content   string `gorm:"column:content"`
+	VoiceURL  string `gorm:"column:voice_url"`
 	CreatedAt string `gorm:"column:created_at"`
 }
 
@@ -66,6 +67,7 @@ func (r *WhisperRepository) List(spaceID string) ([]models.Whisper, error) {
 				WhisperID: reply.WhisperID,
 				UserID:    reply.UserID,
 				Content:   reply.Content,
+				VoiceURL:  reply.VoiceURL,
 				CreatedAt: reply.CreatedAt,
 			})
 		}

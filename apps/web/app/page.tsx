@@ -1,5 +1,5 @@
-import EntryExperience from "@/components/EntryExperience";
+import EntryExperienceGate from "@/components/EntryExperienceGate";
 
 export default function Home() {
-  return <EntryExperience />;
+  return <EntryExperienceGate />;
 }

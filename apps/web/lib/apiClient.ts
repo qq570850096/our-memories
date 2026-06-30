@@ -115,7 +115,7 @@ function makeHeaders(headers?: HeadersInit, auth = true, body?: BodyInit | null)
   return next;
 }
 
-async function refreshAccessToken() {
+export async function refreshAccessToken() {
   const session = readSession();
   if (!session?.refreshToken) return false;
   const response = await fetch(`${apiBaseUrl()}/api/v1/auth/refresh`, {

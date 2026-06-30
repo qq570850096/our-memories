@@ -23,7 +23,8 @@ type ProvinceMapOverlayProps = {
   onZoomIn: () => void;
   onResetCamera: () => void;
   onCloseCity: () => void;
-  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[]) => Promise<void>;
+  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[], rollbackPending?: () => void) => Promise<void>;
+  onOptimisticSave: (cityId: string, memory: Memory) => (() => void) | void;
   onSetCover: (cityId: string, memoryId: string, coverImage: string) => Promise<void>;
   onUpdate: (cityId: string, memoryId: string, memory: MemoryPatchPayload) => Promise<void>;
   onDelete: (cityId: string, memoryId: string) => Promise<void>;
@@ -46,6 +47,7 @@ export function ProvinceMapOverlay({
   onResetCamera,
   onCloseCity,
   onSave,
+  onOptimisticSave,
   onSetCover,
   onUpdate,
   onDelete,
@@ -97,6 +99,7 @@ export function ProvinceMapOverlay({
           isAdmin={isAdmin}
           onClose={onCloseCity}
           onSave={onSave}
+          onOptimisticSave={onOptimisticSave}
           onSetCover={onSetCover}
           onUpdate={onUpdate}
           onDelete={onDelete}
@@ -120,6 +123,7 @@ export function ProvinceMapOverlay({
           landmarkImage={cityAssets[selectedCity.id] ?? selectedCity.sprite}
           hasCustomLandmark={Boolean(cityAssets[selectedCity.id])}
           onSave={onSave}
+          onOptimisticSave={onOptimisticSave}
           onSetCover={onSetCover}
           onUpdate={onUpdate}
           onDelete={onDelete}

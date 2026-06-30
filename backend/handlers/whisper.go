@@ -79,7 +79,7 @@ func DeleteWhisper(c *gin.Context) {
 }
 
 func whisperService() *services.WhisperService {
-	return services.NewWhisperService(repositories.NewWhisperRepository(db.Gorm))
+	return services.NewWhisperService(repositories.NewWhisperRepository(db.Gorm), domainPublisher)
 }
 
 func writeWhisperServiceError(c *gin.Context, err error, fallback string) {
@@ -88,6 +88,8 @@ func writeWhisperServiceError(c *gin.Context, err error, fallback string) {
 		utils.Error(c, 404, "Whisper not found")
 	case errors.Is(err, services.ErrForbidden):
 		utils.Error(c, 403, "Only the creator can modify this whisper")
+	case errors.Is(err, services.ErrInvalidContent):
+		utils.Error(c, 400, "Content or voice is required")
 	default:
 		utils.Error(c, 500, fallback)
 	}

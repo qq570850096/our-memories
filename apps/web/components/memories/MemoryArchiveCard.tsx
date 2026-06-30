@@ -106,7 +106,7 @@ export function MemoryArchiveCard({
       )}
       {showDelete && (
         <button
-          className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border border-rose/20 bg-cream/95 px-2.5 py-2 text-xs font-semibold text-rose shadow-lg transition hover:bg-rose/10 disabled:cursor-not-allowed disabled:opacity-45"
+          className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full border border-rose/20 bg-cream/95 px-2.5 py-2 text-xs font-semibold text-rose shadow-lg transition hover:bg-rose/10 disabled:cursor-not-allowed disabled:opacity-45"
           type="button"
           onClick={async (event) => {
             event.preventDefault();

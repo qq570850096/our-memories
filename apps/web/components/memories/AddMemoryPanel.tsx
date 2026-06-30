@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, Plus, Sparkles } from "lucide-react";
 import { cities } from "@/data/cities";
 import { provinces } from "@/data/provinces";
@@ -151,6 +151,21 @@ export function AddMemoryPanel({
   const normalizedDate = normalizeDottedDate(form.date);
   const canSave = canEdit && Boolean(selectedCity) && Boolean(normalizedDate) && Boolean(form.text.trim()) && !isSaving;
   const citiesInProvince = provinceGroups.get(selectedProvince) || [];
+
+  const openPanel = () => {
+    const currentCity = cityOptions.find((city) => city.id === form.cityId);
+    if (currentCity) {
+      setSelectedProvince(currentCity.provinceId);
+    }
+    resetForm();
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!canEdit || window.location.search !== "?add=1") return;
+    openPanel();
+    window.history.replaceState(null, "", "/memories");
+  }, [canEdit]);
 
   const handleProvinceChange = (provinceId: string) => {
     setSelectedProvince(provinceId);
@@ -305,16 +320,9 @@ export function AddMemoryPanel({
   return (
     <>
       <button
-        className="fixed bottom-28 right-6 z-50 grid h-14 w-14 place-items-center rounded-full bg-bloom text-white shadow-[0_8px_24px_rgba(232,184,194,0.45)] transition hover:scale-105 hover:bg-rose active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 lg:bottom-6"
+        className="fixed bottom-6 right-6 z-50 hidden h-14 w-14 place-items-center rounded-full bg-bloom text-white shadow-[0_8px_24px_rgba(232,184,194,0.45)] transition hover:scale-105 hover:bg-rose active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 lg:grid"
         type="button"
-        onClick={() => {
-          const currentCity = cityOptions.find((city) => city.id === form.cityId);
-          if (currentCity) {
-            setSelectedProvince(currentCity.provinceId);
-          }
-          resetForm();
-          setOpen(true);
-        }}
+        onClick={openPanel}
         disabled={!canEdit}
         aria-label="新增回忆"
       >

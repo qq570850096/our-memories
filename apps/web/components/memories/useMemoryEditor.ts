@@ -37,7 +37,8 @@ type UseMemoryEditorOptions = {
   fallbackImage: string;
   isAdmin: boolean;
   annotationSaveMode?: AnnotationSaveMode;
-  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[]) => Promise<void>;
+  onOptimisticSave?: (cityId: string, memory: Memory) => (() => void) | void;
+  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[], rollbackPending?: () => void) => Promise<void>;
   onUpdate: (cityId: string, memoryId: string, memory: MemoryPatchPayload) => Promise<void>;
 };
 
@@ -46,6 +47,7 @@ export function useMemoryEditor({
   fallbackImage,
   isAdmin,
   annotationSaveMode = "nonempty",
+  onOptimisticSave,
   onSave,
   onUpdate,
 }: UseMemoryEditorOptions) {
@@ -53,9 +55,11 @@ export function useMemoryEditor({
   const [placeName, setPlaceName] = useState("");
   const [date, setDate] = useState("");
   const [text, setText] = useState("");
+  const [voiceTextUrl, setVoiceTextUrl] = useState("");
   const [mood, setMood] = useState("");
   const [tags, setTags] = useState("");
   const [partnerNote, setPartnerNote] = useState("");
+  const [partnerVoiceUrl, setPartnerVoiceUrl] = useState("");
   const [visibility, setVisibility] = useState<"both" | "me" | "her">("both");
   const [photoDrafts, setPhotoDrafts] = useState<PhotoDraft[]>([]);
   const [photoError, setPhotoError] = useState("");
@@ -81,10 +85,12 @@ export function useMemoryEditor({
   const dateInvalid = trimmedDate.length > 0 && !normalizedDate;
   const trimmedPartnerNote = partnerNote.trim();
   const originalPartnerNote = editingMemory?.partnerNote?.trim() ?? "";
+  const originalPartnerVoiceUrl = editingMemory?.partnerVoiceUrl ?? "";
   const canSaveAnnotation =
     annotationSaveMode === "changed"
-      ? trimmedPartnerNote !== originalPartnerNote && (trimmedPartnerNote.length > 0 || originalPartnerNote.length > 0)
-      : trimmedPartnerNote.length > 0;
+      ? (trimmedPartnerNote !== originalPartnerNote || partnerVoiceUrl !== originalPartnerVoiceUrl) &&
+        (trimmedPartnerNote.length > 0 || originalPartnerNote.length > 0 || partnerVoiceUrl.length > 0 || originalPartnerVoiceUrl.length > 0)
+      : trimmedPartnerNote.length > 0 || partnerVoiceUrl.length > 0;
   const canSave = isAdmin
     ? canEditFields
       ? Boolean(normalizedDate) &&
@@ -103,9 +109,11 @@ export function useMemoryEditor({
     setPlaceName("");
     setDate("");
     setText("");
+    setVoiceTextUrl("");
     setMood("");
     setTags("");
     setPartnerNote("");
+    setPartnerVoiceUrl("");
     setVisibility("both");
     setPhotoError("");
     setPolishSuggestion("");
@@ -139,9 +147,11 @@ export function useMemoryEditor({
     setPlaceName(record.placeName ?? "");
     setDate(record.date);
     setText(record.text);
+    setVoiceTextUrl(record.voiceTextUrl ?? "");
     setMood(record.mood ?? "");
     setTags(record.tags?.join("，") ?? "");
     setPartnerNote(record.partnerNote ?? "");
+    setPartnerVoiceUrl(record.partnerVoiceUrl ?? "");
     setVisibility(record.visibility ?? "both");
     setPhotoError("");
     setPolishSuggestion("");
@@ -241,53 +251,73 @@ export function useMemoryEditor({
     setSaveError("");
 
     let uploadedKeys: string[] = [];
-    try {
-      if (editingMemory && canAnnotate && !canEditFields) {
-        await onUpdate(city.id, editingMemory.id, { partnerNote: trimmedPartnerNote });
+      const memoryBeingEdited = editingMemory;
+      const draftsToUpload = photoDraftsRef.current;
+      try {
+        if (memoryBeingEdited && canAnnotate && !canEditFields) {
+        await onUpdate(city.id, memoryBeingEdited.id, { partnerNote: trimmedPartnerNote, partnerVoiceUrl });
         resetForm(true);
         return true;
       }
 
       if (!normalizedDate) return false;
 
-      const uploaded = await uploadImages(photoDrafts.map((photo) => photo.file), "memories");
-      uploadedKeys = uploaded.map((item) => item.key);
-      const uploadedPhotoPayload = uploadedPhotosPayload(uploaded);
-      const photos = uploadedPhotoPayload.map((item) => item.url);
       const nextTags = Array.from(
         new Set(
           tags
             .split(/[，,\s]+/)
             .map((tag) => tag.trim())
-            .filter(Boolean),
+          .filter(Boolean),
         ),
       ).slice(0, 12);
-      const nextPhotos = photos.length > 0 ? photos : editingMemory?.photos ?? [editingMemory?.image ?? fallbackImage];
-      const nextMemory: Memory = {
-        id: editingMemory?.id ?? `${city.id}-local`,
+      const previewPhotos = draftsToUpload.length > 0
+        ? draftsToUpload.map((photo) => photo.previewUrl)
+        : memoryBeingEdited?.photos ?? [memoryBeingEdited?.image ?? fallbackImage];
+      const previewImage = memoryBeingEdited && draftsToUpload.length === 0 ? memoryBeingEdited.image : previewPhotos[0];
+      const baseMemory: Memory = {
+        id: memoryBeingEdited?.id ?? `${city.id}-local`,
         cityId: city.id,
         city: city.name,
         cityEn: city.nameEn,
         title: title.trim() || undefined,
         placeName: placeName.trim() || undefined,
         date: normalizedDate,
-        image: editingMemory && photos.length === 0 ? editingMemory.image : nextPhotos[0],
-        photos: nextPhotos,
+        image: previewImage,
+        photos: previewPhotos,
         text: trimmedText,
+        voiceTextUrl,
+        partnerVoiceUrl,
         mood: mood.trim() || undefined,
         tags: nextTags,
         visibility,
-        createdById: editingMemory?.createdById,
-        createdAt: editingMemory?.createdAt,
+        createdById: memoryBeingEdited?.createdById,
+        createdAt: memoryBeingEdited?.createdAt,
       };
 
-      if (editingMemory) {
+      const rollbackPending = !memoryBeingEdited ? onOptimisticSave?.(city.id, baseMemory) : undefined;
+      const rollback = typeof rollbackPending === "function" ? rollbackPending : undefined;
+      resetForm(false);
+
+      const uploaded = await uploadImages(draftsToUpload.map((photo) => photo.file), "memories");
+      uploadedKeys = uploaded.map((item) => item.key);
+      const uploadedPhotoPayload = uploadedPhotosPayload(uploaded);
+      const photos = uploadedPhotoPayload.map((item) => item.url);
+      const nextPhotos = photos.length > 0 ? photos : memoryBeingEdited?.photos ?? [memoryBeingEdited?.image ?? fallbackImage];
+      const nextMemory: Memory = {
+        ...baseMemory,
+        image: memoryBeingEdited && photos.length === 0 ? memoryBeingEdited.image : nextPhotos[0],
+        photos: nextPhotos,
+      };
+
+      if (memoryBeingEdited) {
         const patch: MemoryPatchPayload = {
           title: nextMemory.title,
           placeName: nextMemory.placeName,
           date: nextMemory.date,
           image: nextMemory.image,
           text: nextMemory.text,
+          voiceTextUrl: nextMemory.voiceTextUrl,
+          partnerVoiceUrl: nextMemory.partnerVoiceUrl,
           mood: nextMemory.mood,
           tags: nextMemory.tags,
           visibility: nextMemory.visibility,
@@ -296,30 +326,22 @@ export function useMemoryEditor({
           patch.coverImage = nextMemory.image;
           patch.photos = uploadedPhotoPayload;
         }
-        await onUpdate(city.id, editingMemory.id, patch);
+        await onUpdate(city.id, memoryBeingEdited.id, patch);
       } else {
         const createPhotosPayload =
           uploadedPhotoPayload.length > 0 ? uploadedPhotoPayload : memoryPhotosPayload([fallbackImage]);
         await onSave(city.id, {
-          id: `${city.id}-local`,
-          cityId: city.id,
-          city: city.name,
-          cityEn: city.nameEn,
-          date: normalizedDate,
+          ...baseMemory,
           image: photos[0] ?? fallbackImage,
           photos: photos.length > 0 ? photos : [fallbackImage],
-          text: trimmedText,
-          title: title.trim() || undefined,
-          placeName: placeName.trim() || undefined,
-          mood: mood.trim() || undefined,
-          tags: nextTags,
-          visibility,
-        }, createPhotosPayload);
+        }, createPhotosPayload, rollback);
       }
-      resetForm(true);
+      revokePhotoDrafts(draftsToUpload);
       return true;
     } catch {
       await deleteUploaded(uploadedKeys);
+      revokePhotoDrafts(draftsToUpload);
+      if (!memoryBeingEdited) resetForm(true);
       setSaveError("保存失败，请稍后再试");
       return false;
     } finally {
@@ -337,9 +359,9 @@ export function useMemoryEditor({
     isAdmin,
     mood,
     normalizedDate,
+    onOptimisticSave,
     onSave,
     onUpdate,
-    photoDrafts,
     placeName,
     resetForm,
     tags,
@@ -347,6 +369,8 @@ export function useMemoryEditor({
     trimmedPartnerNote,
     trimmedText,
     visibility,
+    voiceTextUrl,
+    partnerVoiceUrl,
   ]);
 
   return {
@@ -358,12 +382,16 @@ export function useMemoryEditor({
     setDate,
     text,
     setText: handleTextChange,
+    voiceTextUrl,
+    setVoiceTextUrl,
     mood,
     setMood,
     tags,
     setTags,
     partnerNote,
     setPartnerNote,
+    partnerVoiceUrl,
+    setPartnerVoiceUrl,
     visibility,
     setVisibility,
     photoDrafts,
@@ -374,6 +402,7 @@ export function useMemoryEditor({
     setPolishError,
     polishing,
     saveError,
+    setSaveError,
     coverError,
     setCoverError,
     editingMemory,

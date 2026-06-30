@@ -16,41 +16,47 @@ import (
 )
 
 var ErrForbidden = errors.New("forbidden")
+var ErrInvalidContent = errors.New("invalid content")
 
 type PhotoInput struct {
-	Key      string `json:"key"`
-	URL      string `json:"url"`
-	MimeType string `json:"mimeType"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	Key       string `json:"key"`
+	URL       string `json:"url"`
+	MimeType  string `json:"mimeType"`
+	MediaType string `json:"mediaType"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
 }
 
 type CreateMemoryRequest struct {
-	CityID      string       `json:"cityId" binding:"required"`
-	City        string       `json:"city" binding:"required"`
-	CityEn      string       `json:"cityEn" binding:"required"`
-	Title       string       `json:"title"`
-	Date        string       `json:"date" binding:"required"`
-	Text        string       `json:"text" binding:"required"`
-	Mood        string       `json:"mood"`
-	Tags        []string     `json:"tags"`
-	Visibility  string       `json:"visibility"`
-	PartnerNote string       `json:"partnerNote"`
-	PlaceName   string       `json:"placeName"`
-	Photos      []PhotoInput `json:"photos"`
+	CityID          string       `json:"cityId" binding:"required"`
+	City            string       `json:"city" binding:"required"`
+	CityEn          string       `json:"cityEn" binding:"required"`
+	Title           string       `json:"title"`
+	Date            string       `json:"date" binding:"required"`
+	Text            string       `json:"text" binding:"required"`
+	Mood            string       `json:"mood"`
+	Tags            []string     `json:"tags"`
+	Visibility      string       `json:"visibility"`
+	PartnerNote     string       `json:"partnerNote"`
+	VoiceTextURL    string       `json:"voiceTextUrl"`
+	PartnerVoiceURL string       `json:"partnerVoiceUrl"`
+	PlaceName       string       `json:"placeName"`
+	Photos          []PhotoInput `json:"photos"`
 }
 
 type UpdateMemoryRequest struct {
-	Title       string        `json:"title"`
-	Date        string        `json:"date"`
-	Text        string        `json:"text"`
-	Mood        string        `json:"mood"`
-	Tags        []string      `json:"tags"`
-	Visibility  string        `json:"visibility"`
-	PartnerNote *string       `json:"partnerNote"`
-	PlaceName   string        `json:"placeName"`
-	CoverImage  string        `json:"coverImage"`
-	Photos      *[]PhotoInput `json:"photos"`
+	Title           string        `json:"title"`
+	Date            string        `json:"date"`
+	Text            string        `json:"text"`
+	Mood            string        `json:"mood"`
+	Tags            []string      `json:"tags"`
+	Visibility      string        `json:"visibility"`
+	PartnerNote     *string       `json:"partnerNote"`
+	VoiceTextURL    string        `json:"voiceTextUrl"`
+	PartnerVoiceURL string        `json:"partnerVoiceUrl"`
+	PlaceName       string        `json:"placeName"`
+	CoverImage      string        `json:"coverImage"`
+	Photos          *[]PhotoInput `json:"photos"`
 }
 
 type MemoryStoreLoader func(spaceID string, userID string) (map[string][]gin.H, error)
@@ -68,6 +74,39 @@ type MemoryService struct {
 	upload      PhotoUploader
 	delete      PhotoDeleter
 	publisher   events.Publisher
+}
+
+type MemoryListRequest struct {
+	CityID     string
+	Tags       []string
+	Mood       string
+	Visibility string
+	DateFrom   string
+	DateTo     string
+	Query      string
+	Cursor     string
+	Limit      int
+}
+
+type MemoryListResponse struct {
+	Items      []models.Memory `json:"items"`
+	NextCursor string          `json:"nextCursor,omitempty"`
+	HasMore    bool            `json:"hasMore"`
+}
+
+type MemorySearchIntent struct {
+	Query  string            `json:"query,omitempty"`
+	CityID string            `json:"cityId,omitempty"`
+	Tags   []string          `json:"tags,omitempty"`
+	Mood   string            `json:"mood,omitempty"`
+	Source map[string]string `json:"source,omitempty"`
+}
+
+type MemoryIntentSearchResponse struct {
+	Intent     MemorySearchIntent `json:"intent"`
+	Items      []models.Memory    `json:"items"`
+	NextCursor string             `json:"nextCursor,omitempty"`
+	HasMore    bool               `json:"hasMore"`
 }
 
 func NewMemoryService(
@@ -120,6 +159,8 @@ func (s *MemoryService) Create(spaceID string, userID string, req CreateMemoryRe
 		Visibility:          req.Visibility,
 		PartnerNote:         partnerNote,
 		PartnerNoteAuthorID: partnerNoteAuthorID,
+		VoiceTextURL:        req.VoiceTextURL,
+		PartnerVoiceURL:     req.PartnerVoiceURL,
 		PlaceName:           req.PlaceName,
 		CreatedByID:         userID,
 	}, memoryPhotoRecords(memoryID, req.Photos))
@@ -165,6 +206,8 @@ func (s *MemoryService) ListByCity(spaceID string, userID string, cityID string)
 			"visibility":          memory.Visibility,
 			"partnerNote":         memory.PartnerNote,
 			"partnerNoteAuthorId": memory.PartnerNoteAuthorID,
+			"voiceTextUrl":        memory.VoiceTextURL,
+			"partnerVoiceUrl":     memory.PartnerVoiceURL,
 			"placeName":           memory.PlaceName,
 			"coverPhotoId":        memory.CoverPhotoID,
 			"image":               image,
@@ -172,6 +215,105 @@ func (s *MemoryService) ListByCity(spaceID string, userID string, cityID string)
 			"createdById":         memory.CreatedByID,
 			"createdAt":           memory.CreatedAt,
 			"updatedAt":           memory.UpdatedAt,
+		})
+	}
+	return result, nil
+}
+
+func (s *MemoryService) ListPage(spaceID string, userID string, req MemoryListRequest) (MemoryListResponse, error) {
+	page, err := s.repo.ListPage(spaceID, userID, repositories.MemoryListFilter{
+		CityID:     req.CityID,
+		Tags:       req.Tags,
+		Mood:       req.Mood,
+		Visibility: req.Visibility,
+		DateFrom:   req.DateFrom,
+		DateTo:     req.DateTo,
+		Query:      req.Query,
+		Cursor:     req.Cursor,
+		Limit:      req.Limit,
+	})
+	if err != nil {
+		return MemoryListResponse{}, err
+	}
+	memoryIDs := make([]string, 0, len(page.Items))
+	for _, memory := range page.Items {
+		memoryIDs = append(memoryIDs, memory.ID)
+	}
+	photosByMemoryID, err := s.repo.PhotosByMemoryIDs(memoryIDs)
+	if err != nil {
+		return MemoryListResponse{}, err
+	}
+	for i := range page.Items {
+		page.Items[i].Photos = photosByMemoryID[page.Items[i].ID]
+	}
+	return MemoryListResponse{
+		Items:      page.Items,
+		NextCursor: page.NextCursor,
+		HasMore:    page.HasMore,
+	}, nil
+}
+
+func (s *MemoryService) RelatedByDate(spaceID string, userID string, memoryID string) ([]models.Memory, error) {
+	memories, err := s.repo.RelatedByDate(spaceID, userID, memoryID, 3)
+	if err != nil {
+		return nil, err
+	}
+	memoryIDs := make([]string, 0, len(memories))
+	for _, memory := range memories {
+		memoryIDs = append(memoryIDs, memory.ID)
+	}
+	photosByMemoryID, err := s.repo.PhotosByMemoryIDs(memoryIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range memories {
+		memories[i].Photos = photosByMemoryID[memories[i].ID]
+	}
+	return memories, nil
+}
+
+func (s *MemoryService) ListTrash(spaceID string, userID string) ([]gin.H, error) {
+	memories, err := s.repo.ListTrash(spaceID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	memoryIDs := make([]string, 0, len(memories))
+	for _, memory := range memories {
+		memoryIDs = append(memoryIDs, memory.ID)
+	}
+	photosByMemoryID, err := s.repo.PhotosByMemoryIDs(memoryIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]gin.H, 0, len(memories))
+	for _, memory := range memories {
+		memory.Photos = photosByMemoryID[memory.ID]
+		photoURLs, image := memoryImagePayload(memory)
+		result = append(result, gin.H{
+			"id":                  memory.ID,
+			"cityId":              memory.CityID,
+			"city":                memory.City,
+			"cityEn":              memory.CityEn,
+			"title":               memory.Title,
+			"date":                memory.Date,
+			"text":                memory.Text,
+			"mood":                memory.Mood,
+			"tags":                memory.Tags,
+			"visibility":          memory.Visibility,
+			"partnerNote":         memory.PartnerNote,
+			"partnerNoteAuthorId": memory.PartnerNoteAuthorID,
+			"voiceTextUrl":        memory.VoiceTextURL,
+			"partnerVoiceUrl":     memory.PartnerVoiceURL,
+			"placeName":           memory.PlaceName,
+			"coverPhotoId":        memory.CoverPhotoID,
+			"image":               image,
+			"photos":              photoURLs,
+			"createdById":         memory.CreatedByID,
+			"createdAt":           memory.CreatedAt,
+			"updatedAt":           memory.UpdatedAt,
+			"deletedAt":           memory.DeletedAt,
 		})
 	}
 	return result, nil
@@ -247,34 +389,39 @@ func (s *MemoryService) Update(spaceID string, userID string, memoryID string, r
 
 	isCreator := createdByID == userID
 	if !isCreator {
-		if req.PartnerNote == nil {
+		if req.PartnerNote == nil && req.PartnerVoiceURL == "" {
 			return nil, ErrForbidden
 		}
-		partnerNote := strings.TrimSpace(*req.PartnerNote)
+		partnerNote := ""
+		if req.PartnerNote != nil {
+			partnerNote = strings.TrimSpace(*req.PartnerNote)
+		}
 		partnerNoteAuthorID := userID
-		if partnerNote == "" {
+		if partnerNote == "" && req.PartnerVoiceURL == "" {
 			partnerNoteAuthorID = ""
 		}
-		if err := s.repo.UpdatePartnerNote(memoryID, spaceID, partnerNote, partnerNoteAuthorID); err != nil {
+		if err := s.repo.UpdatePartnerNote(memoryID, spaceID, partnerNote, partnerNoteAuthorID, req.PartnerVoiceURL); err != nil {
 			return nil, err
 		}
 		s.publish(events.MemoryUpdated, spaceID, userID, memoryID, map[string]any{"field": "partnerNote"})
 		return s.reload(spaceID, userID)
 	}
 
-	if req.Date != "" || req.Text != "" {
+	if req.Date != "" || req.Text != "" || req.VoiceTextURL != "" || req.PartnerVoiceURL != "" {
 		tagsJSON, _ := json.Marshal(req.Tags)
 		if req.Visibility == "" {
 			req.Visibility = "both"
 		}
 		if err := s.repo.UpdateCore(memoryID, spaceID, map[string]any{
-			"title":      req.Title,
-			"date":       req.Date,
-			"text":       req.Text,
-			"mood":       req.Mood,
-			"tags":       string(tagsJSON),
-			"visibility": req.Visibility,
-			"place_name": req.PlaceName,
+			"title":             req.Title,
+			"date":              req.Date,
+			"text":              req.Text,
+			"mood":              req.Mood,
+			"tags":              string(tagsJSON),
+			"visibility":        req.Visibility,
+			"voice_text_url":    req.VoiceTextURL,
+			"partner_voice_url": req.PartnerVoiceURL,
+			"place_name":        req.PlaceName,
 		}); err != nil {
 			return nil, err
 		}
@@ -319,18 +466,28 @@ func (s *MemoryService) Delete(spaceID string, userID string, memoryID string) (
 		return nil, ErrForbidden
 	}
 
-	photos, err := s.collectPhotos(memoryID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.delete(spaceID, photos); err != nil {
-		return nil, err
-	}
 	if err := s.repo.Delete(memoryID, spaceID); err != nil {
 		return nil, err
 	}
 
 	s.publish(events.MemoryDeleted, spaceID, userID, memoryID, nil)
+	return s.reload(spaceID, userID)
+}
+
+func (s *MemoryService) Restore(spaceID string, userID string, memoryID string) (map[string][]gin.H, error) {
+	createdByID, err := s.repo.CreatedByIDIncludingDeleted(memoryID, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	if createdByID != userID {
+		return nil, ErrForbidden
+	}
+
+	if err := s.repo.Restore(memoryID, spaceID); err != nil {
+		return nil, err
+	}
+
+	s.publish(events.MemoryUpdated, spaceID, userID, memoryID, map[string]any{"field": "restore"})
 	return s.reload(spaceID, userID)
 }
 
@@ -393,6 +550,7 @@ func memoryPhotoRecords(memoryID string, photos []PhotoInput) []repositories.Mem
 			Key:       photo.Key,
 			URL:       photo.URL,
 			MimeType:  photo.MimeType,
+			MediaType: normalizeMediaType(photo.MediaType, photo.MimeType),
 			Width:     photo.Width,
 			Height:    photo.Height,
 			SortOrder: i,
@@ -407,6 +565,9 @@ func memoryImagePayload(memory models.Memory) ([]string, string) {
 		if photo.URL == "" {
 			continue
 		}
+		if normalizeMediaType(photo.MediaType, photo.MimeType) == "audio" {
+			continue
+		}
 		photoURLs = append(photoURLs, photo.URL)
 	}
 
@@ -414,6 +575,9 @@ func memoryImagePayload(memory models.Memory) ([]string, string) {
 	if memory.CoverPhotoID != "" {
 		for _, photo := range memory.Photos {
 			if photo.ID == memory.CoverPhotoID && photo.URL != "" {
+				if normalizeMediaType(photo.MediaType, photo.MimeType) == "audio" {
+					continue
+				}
 				image = photo.URL
 				break
 			}
@@ -423,4 +587,15 @@ func memoryImagePayload(memory models.Memory) ([]string, string) {
 		image = photoURLs[0]
 	}
 	return photoURLs, image
+}
+
+func normalizeMediaType(mediaType string, mimeType string) string {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if mediaType == "audio" {
+		return "audio"
+	}
+	if strings.HasPrefix(strings.ToLower(mimeType), "audio/") {
+		return "audio"
+	}
+	return "image"
 }

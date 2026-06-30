@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cityRegionPath } from "@/lib/cityGeo";
 import { chinaFeatures, makePath, makeProjectionForProvince, provinceIdOf } from "@/lib/geo";
 import { buildMemoryRoutePoints, curvedRoutePath } from "@/lib/memoryRoutes";
@@ -10,6 +10,9 @@ import type { Province } from "@/data/provinces";
 import { adminModeUpdatedEvent } from "@/data/adminMode";
 import { useContentEditAccess } from "@/lib/useContentEditAccess";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { createSignal } from "@/lib/signals";
+import { useApi } from "@/lib/swr";
+import { useToast } from "@/components/ui/toast";
 import {
   type CardAnchor,
   cityListPanelWidth,
@@ -35,6 +38,13 @@ interface ProvinceMapProps {
 export default function ProvinceMap({ province, width = 1120, height = 760 }: ProvinceMapProps) {
   const isAdmin = useContentEditAccess();
   const isMobile = useIsMobile();
+  const { toast } = useToast();
+  const signalPressTimerRef = useRef<ReturnType<Window["setTimeout"]> | null>(null);
+  const sentSignalTimerRef = useRef<ReturnType<Window["setTimeout"]> | null>(null);
+  const [sentSignalCityId, setSentSignalCityId] = useState<string | null>(null);
+  const { data: signalData, mutate: refreshSignals } = useApi<{
+    signals: Array<{ id: string; cityId: string; expiresAt: string }>;
+  }>("/signals");
   const {
     frameRef,
     camera,
@@ -58,6 +68,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     applyMemoryUpdate,
     refreshRemoteState,
     saveMemory,
+    beginSaveMemory,
     saveMemoryCover,
     updateMemoryRecord,
     deleteMemoryRecord,
@@ -195,6 +206,12 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
       }),
     [cityAssets, litCityIds, localMemories, mapGeometry.cities],
   );
+  const signalCityIds = useMemo(() => {
+    return new Set(
+      (signalData?.signals ?? [])
+        .map((signal) => signal.cityId),
+    );
+  }, [signalData?.signals]);
 
   const routePoints = useMemo(() => {
     const pointByCityId = new Map(mapCities.map((city) => [city.id, { x: city.x, y: city.y }]));
@@ -235,6 +252,47 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     clearSelection();
     resetCameraPosition();
   }, [clearSelection, resetCameraPosition]);
+
+  const clearSignalPress = useCallback(() => {
+    if (signalPressTimerRef.current) {
+      window.clearTimeout(signalPressTimerRef.current);
+      signalPressTimerRef.current = null;
+    }
+  }, []);
+
+  const sendSignal = useCallback(
+    async (cityId: string) => {
+      clearSignalPress();
+      try {
+        await createSignal(cityId);
+        setSentSignalCityId(cityId);
+        void refreshSignals();
+        toast("已发送想你信号", "success", 1600);
+        if (sentSignalTimerRef.current) window.clearTimeout(sentSignalTimerRef.current);
+        sentSignalTimerRef.current = window.setTimeout(() => setSentSignalCityId(null), 1800);
+      } catch {
+        toast("信号发送失败", "error", 1800);
+      }
+    },
+    [clearSignalPress, refreshSignals, toast],
+  );
+
+  const beginSignalPress = useCallback(
+    (cityId: string) => {
+      clearSignalPress();
+      signalPressTimerRef.current = window.setTimeout(() => {
+        void sendSignal(cityId);
+      }, 720);
+    },
+    [clearSignalPress, sendSignal],
+  );
+
+  useEffect(() => {
+    return () => {
+      clearSignalPress();
+      if (sentSignalTimerRef.current) window.clearTimeout(sentSignalTimerRef.current);
+    };
+  }, [clearSignalPress]);
 
   useEffect(() => {
     const cityId = new URLSearchParams(window.location.search).get("city");
@@ -281,8 +339,12 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
         previewCityId={previewCityId}
         travelRoute={travelRoute}
         routePoints={routePoints}
+        signalCityIds={signalCityIds}
+        sentSignalCityId={sentSignalCityId}
         setPreviewCityId={setPreviewCityId}
         handleSelectCity={handleSelectCity}
+        beginSignalPress={beginSignalPress}
+        clearSignalPress={clearSignalPress}
         clearLongPressPreview={clearLongPressPreview}
         beginLongPressPreview={beginLongPressPreview}
       />
@@ -311,6 +373,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
         onResetCamera={resetCamera}
         onCloseCity={() => setSelectedCityId(null)}
         onSave={saveMemory}
+        onOptimisticSave={beginSaveMemory}
         onSetCover={saveMemoryCover}
         onUpdate={updateMemoryRecord}
         onDelete={deleteMemoryRecord}

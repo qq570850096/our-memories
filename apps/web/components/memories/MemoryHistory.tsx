@@ -1,13 +1,38 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { NotebookPen, Pencil, Trash2 } from "lucide-react";
 import type { City } from "@/data/cities";
 import type { Memory } from "@/data/memories";
 import { photosOfMemory } from "@/components/memories/MemoryContentView";
 import { MobileMemoryImage } from "@/components/memories/MobileMemoryImage";
 import { memorySupplementLabel } from "@/lib/memorySupplement";
 import { computeMemoryEditAccess } from "@/lib/useContentEditAccess";
+import { useApi } from "@/lib/swr";
+
+type DiaryItem = {
+  id: string;
+  title: string;
+  date?: string;
+  note: string;
+  cityId?: string;
+};
+
+type DiaryPayload = {
+  body?: string;
+  linkedMemoryId?: string;
+  linkedMemoryTitle?: string;
+  history?: unknown[];
+};
+
+const parseDiaryPayload = (note: string): DiaryPayload => {
+  try {
+    return JSON.parse(note) as DiaryPayload;
+  } catch {
+    return { body: note };
+  }
+};
 
 export function MemoryHistory({
   city,
@@ -34,16 +59,60 @@ export function MemoryHistory({
   onDelete: (record: Memory) => void;
   renderNoteEditor: (record: Memory) => ReactNode;
 }>) {
+  const { data: diaryData } = useApi<{ items?: DiaryItem[] }>("/api/v1/auxiliary-items?kind=diary");
+  const memoryIds = new Set(memories.map((memory) => memory.id));
+  const linkedDiaries = (diaryData?.items ?? [])
+    .map((item) => ({ item, payload: parseDiaryPayload(item.note) }))
+    .filter(({ item, payload }) => item.cityId === city.id || (payload.linkedMemoryId && memoryIds.has(payload.linkedMemoryId)))
+    .slice(0, 4);
+
   if (memories.length === 0) {
     return (
       <p className="rounded-[7px] border border-dashed border-dim px-4 py-6 text-center text-sm text-ink/56">
-        还没有历史记录。
+        还没有关联日记。
       </p>
     );
   }
 
   return (
     <div className="space-y-3">
+      <div className="rounded-[8px] border border-sakura/70 bg-sakura/18 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-bloom">
+            <NotebookPen className="h-3.5 w-3.5" />
+            关联日记
+          </p>
+          <Link className="text-xs font-semibold text-ink/52 transition hover:text-bloom" href="/favorites">
+            全部日记
+          </Link>
+        </div>
+        {linkedDiaries.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {linkedDiaries.map(({ item, payload }) => (
+              <Link
+                key={item.id}
+                className="block rounded-[7px] border border-dim/62 bg-cream/72 p-3 transition hover:border-bloom"
+                href={`/favorites?diary=${encodeURIComponent(item.id)}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 truncate text-sm font-semibold text-ink">{item.title}</p>
+                  {item.date && <span className="shrink-0 text-[11px] font-semibold text-ink/42">{item.date}</span>}
+                </div>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-ink/62">
+                  {payload.body || "点开继续补完这篇日记。"}
+                </p>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <Link
+            className="mt-3 block rounded-[7px] border border-dashed border-dim bg-cream/58 px-3 py-4 text-center text-xs font-semibold text-ink/54 transition hover:border-bloom hover:text-bloom"
+            href="/favorites"
+          >
+            还没有关联日记，去写一篇
+          </Link>
+        )}
+      </div>
       {memories.map((record, recordIndex) => {
         const recordPhotos = photosOfMemory(record);
         const editable = localMemoryIds.has(record.id);

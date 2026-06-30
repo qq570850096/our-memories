@@ -14,6 +14,7 @@ import { LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { DatePicker } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { VoiceRecorder } from "@/components/ui/VoiceRecorder";
 import { useConfirm } from "@/components/ui/use-confirm";
 import { uploadImage, deleteUploaded } from "@/lib/upload";
 import type { MemoryPatchPayload, MemoryPhotoPayload } from "@/lib/memoryApi";
@@ -35,7 +36,8 @@ type MemoryCitySheetProps = {
   defaultMode?: "view" | "create";
   landmarkImage?: string;
   hasCustomLandmark?: boolean;
-  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[]) => Promise<void>;
+  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[], rollbackPending?: () => void) => Promise<void>;
+  onOptimisticSave?: (cityId: string, memory: Memory) => (() => void) | void;
   onUpdate: (cityId: string, memoryId: string, memory: MemoryPatchPayload) => Promise<void>;
   onDelete: (cityId: string, memoryId: string) => Promise<void>;
   onSetCover?: (cityId: string, memoryId: string, coverImage: string) => Promise<void>;
@@ -55,6 +57,7 @@ export function MemoryCitySheet({
   landmarkImage,
   hasCustomLandmark = false,
   onSave,
+  onOptimisticSave,
   onUpdate,
   onDelete,
   onSetCover,
@@ -93,12 +96,16 @@ export function MemoryCitySheet({
     setDate,
     text,
     setText,
+    voiceTextUrl,
+    setVoiceTextUrl,
     mood,
     setMood,
     tags,
     setTags,
     partnerNote,
     setPartnerNote,
+    partnerVoiceUrl,
+    setPartnerVoiceUrl,
     visibility,
     setVisibility,
     photoDrafts,
@@ -107,6 +114,7 @@ export function MemoryCitySheet({
     polishError,
     polishing,
     saveError,
+    setSaveError,
     coverError,
     setCoverError,
     editingMemory,
@@ -131,6 +139,7 @@ export function MemoryCitySheet({
     city,
     fallbackImage: resolvedLandmarkImage,
     isAdmin,
+    onOptimisticSave,
     onSave,
     onUpdate,
   });
@@ -142,6 +151,7 @@ export function MemoryCitySheet({
   const [annotatingMemoryId, setAnnotatingMemoryId] = useState<string | null>(null);
   const [previewPhotoIndex, setPreviewPhotoIndex] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [noteVoiceUrl, setNoteVoiceUrl] = useState("");
   const [noteError, setNoteError] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const mountedRef = useRef(false);
@@ -154,17 +164,19 @@ export function MemoryCitySheet({
     ? memories.find((item) => item.id === annotatingMemoryId)
     : undefined;
   const noteOriginal = annotatingMemory?.partnerNote?.trim() ?? "";
+  const noteVoiceOriginal = annotatingMemory?.partnerVoiceUrl ?? "";
   const noteText = noteDraft.trim();
   const canSaveNote = Boolean(
     annotatingMemory &&
       !noteSaving &&
-      noteText !== noteOriginal &&
-      (noteText.length > 0 || noteOriginal.length > 0),
+      (noteText !== noteOriginal || noteVoiceUrl !== noteVoiceOriginal) &&
+      (noteText.length > 0 || noteOriginal.length > 0 || noteVoiceUrl.length > 0 || noteVoiceOriginal.length > 0),
   );
 
   const resetAnnotation = useCallback(() => {
     setAnnotatingMemoryId(null);
     setNoteDraft("");
+    setNoteVoiceUrl("");
     setNoteError("");
     setNoteSaving(false);
   }, []);
@@ -236,6 +248,7 @@ export function MemoryCitySheet({
     setFormOpen(false);
     setAnnotatingMemoryId(record.id);
     setNoteDraft(record.partnerNote ?? "");
+    setNoteVoiceUrl(record.partnerVoiceUrl ?? "");
     setNoteError("");
   };
 
@@ -278,7 +291,7 @@ export function MemoryCitySheet({
     setNoteError("");
 
     try {
-      await onUpdate(city.id, record.id, { partnerNote: noteText });
+      await onUpdate(city.id, record.id, { partnerNote: noteText, partnerVoiceUrl: noteVoiceUrl });
       if (mountedRef.current) {
         flushSync(() => resetAnnotation());
       }
@@ -336,8 +349,10 @@ export function MemoryCitySheet({
     }
   };
 
-  const handleSave = async () => {
-    if (await saveMemoryForm()) setFormOpen(false);
+  const handleSave = () => {
+    if (!canSave) return;
+    setFormOpen(false);
+    void saveMemoryForm();
   };
 
   const handleSetCover = async (photo: string) => {
@@ -381,6 +396,18 @@ export function MemoryCitySheet({
           maxLength={500}
         />
       </label>
+      <div className="mt-3">
+        <VoiceRecorder
+          folder="memories"
+          value={noteVoiceUrl}
+          disabled={noteSaving}
+          onChange={(url) => {
+            setNoteVoiceUrl(url);
+            setNoteError("");
+          }}
+          onError={setNoteError}
+        />
+      </div>
       <div className="mt-3 flex items-center gap-2">
         <button
           className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-[7px] bg-slate px-4 text-sm font-semibold text-white transition hover:bg-rose disabled:cursor-not-allowed disabled:opacity-45"
@@ -475,7 +502,7 @@ export function MemoryCitySheet({
             {([
               ["memory", "回忆"],
               ["gallery", "相册"],
-              ["history", "历史"],
+              ["history", "日记"],
             ] as const).map(([tab, label]) => (
               <button
                 key={tab}
@@ -493,6 +520,7 @@ export function MemoryCitySheet({
             ))}
           </div>
         )}
+        {!formOpen && saveError && <p className="text-xs font-semibold text-rose">{saveError}</p>}
 
         {showMemory && !formOpen && (
           <div className="space-y-4">
@@ -744,6 +772,13 @@ export function MemoryCitySheet({
                     maxLength={memoryTextMaxLength}
                   />
                 </label>
+                <VoiceRecorder
+                  folder="memories"
+                  value={voiceTextUrl}
+                  disabled={!canEditFields}
+                  onChange={(url) => setVoiceTextUrl(url)}
+                  onError={setSaveError}
+                />
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
@@ -883,18 +918,27 @@ export function MemoryCitySheet({
               </>
             )}
 
-              {canAnnotate && (
+            {canAnnotate && (
+              <div className="space-y-2">
                 <label className="block">
-                <span className="text-xs font-medium text-ink/70">补充回忆</span>
-                <textarea
-                  className="mt-1.5 w-full resize-none rounded-[7px] border border-dim bg-cream px-3 py-2.5 text-sm leading-6 text-ink placeholder:text-ink/40 outline-none transition focus:border-bloom"
-                  rows={4}
-                  value={partnerNote}
-                  onChange={(event) => setPartnerNote(event.target.value)}
-                  placeholder="留给另一个人的一句补充..."
-                  maxLength={500}
+                  <span className="text-xs font-medium text-ink/70">补充回忆</span>
+                  <textarea
+                    className="mt-1.5 w-full resize-none rounded-[7px] border border-dim bg-cream px-3 py-2.5 text-sm leading-6 text-ink placeholder:text-ink/40 outline-none transition focus:border-bloom"
+                    rows={4}
+                    value={partnerNote}
+                    onChange={(event) => setPartnerNote(event.target.value)}
+                    placeholder="留给另一个人的一句补充..."
+                    maxLength={500}
+                  />
+                </label>
+                <VoiceRecorder
+                  folder="memories"
+                  value={partnerVoiceUrl}
+                  disabled={!canAnnotate}
+                  onChange={(url) => setPartnerVoiceUrl(url)}
+                  onError={setSaveError}
                 />
-              </label>
+              </div>
             )}
           </div>
         )}

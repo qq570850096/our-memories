@@ -80,6 +80,50 @@ func UpdateSetting(c *gin.Context) {
 	utils.Success(c, gin.H{"ok": true})
 }
 
+func GetAgentSettings(c *gin.Context) {
+	spaceID := c.GetString("spaceID")
+	settings, err := settingService().AgentSettings(spaceID)
+	if err != nil {
+		utils.Error(c, 500, "Failed to fetch agent settings")
+		return
+	}
+	ignored, err := settingService().IgnoredAgentSuggestions(spaceID)
+	if err != nil {
+		utils.Error(c, 500, "Failed to fetch agent settings")
+		return
+	}
+	utils.Success(c, gin.H{"settings": settings, "ignored": ignored})
+}
+
+func UpdateAgentSettings(c *gin.Context) {
+	spaceID := c.GetString("spaceID")
+	var req services.AgentSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, 400, "Invalid request")
+		return
+	}
+	if err := settingService().UpdateAgentSettings(spaceID, req); err != nil {
+		utils.Error(c, 500, "Failed to update agent settings")
+		return
+	}
+	utils.Success(c, gin.H{"settings": req})
+}
+
+func IgnoreAgentSuggestion(c *gin.Context) {
+	spaceID := c.GetString("spaceID")
+	var req services.IgnoreAgentSuggestionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, 400, "Invalid request")
+		return
+	}
+	ignored, err := settingService().IgnoreAgentSuggestion(spaceID, req)
+	if err != nil {
+		utils.Error(c, 500, "Failed to ignore suggestion")
+		return
+	}
+	utils.Success(c, gin.H{"ignored": ignored})
+}
+
 func GetAuxiliaryItems(c *gin.Context) {
 	spaceID := c.GetString("spaceID")
 	kind := c.Query("kind")

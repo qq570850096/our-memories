@@ -1,7 +1,8 @@
 "use client";
 
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { CalendarHeart, ImagePlus, Pencil, Pin, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarHeart, Images, ImagePlus, Pencil, Pin, Plus, Trash2 } from "lucide-react";
 import { anniversaryDisplayState, type AnniversaryCard } from "@map-of-us/shared";
 import { MemoryPageShell } from "@/components/MemoryNav";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
@@ -9,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DatePicker, Input, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { VoicePlayer } from "@/components/ui/VoicePlayer";
+import { VoiceRecorder } from "@/components/ui/VoiceRecorder";
+import { AnniversaryGallery } from "@/components/anniversaries/AnniversaryGallery";
 import { useConfirm } from "@/components/ui/use-confirm";
 import { useToast } from "@/components/ui/toast";
 import { photoPayload } from "@/lib/photoPayload";
@@ -23,6 +27,7 @@ const emptyForm = {
   title: "",
   date: "",
   note: "",
+  voiceUrl: "",
   repeatYearly: true,
   pinned: false,
   photos: [] as string[],
@@ -38,13 +43,22 @@ type ServerPhoto = {
 
 type ServerAnniversaryCard = Omit<AnniversaryCard, "image" | "photos" | "photoItems"> & {
   coverPhotoId?: string;
+  voiceUrl?: string;
+  bgmUrl?: string;
+  bgmPreset?: string;
   photos?: ServerPhoto[];
 };
 
+type AnniversaryCardWithVoice = AnniversaryCard & {
+  voiceUrl?: string;
+  bgmUrl?: string;
+  bgmPreset?: string;
+};
+
 const normalizeCardsResponse = (data: {
-  cards?: AnniversaryCard[];
+  cards?: AnniversaryCardWithVoice[];
   anniversaryCards?: ServerAnniversaryCard[];
-}) => {
+}): AnniversaryCardWithVoice[] => {
   if (data.cards) return data.cards;
 
   return (data.anniversaryCards ?? []).map((card) => {
@@ -64,7 +78,7 @@ const normalizeCardsResponse = (data: {
       image: photoItems[0]?.url,
       photos: photoItems.map((photo) => photo.url),
       photoItems,
-    } satisfies AnniversaryCard;
+    } satisfies AnniversaryCardWithVoice;
   });
 };
 
@@ -86,6 +100,7 @@ export default function AnniversaryWall() {
   const [photoKeys, setPhotoKeys] = useState<string[]>([]);
   const [photosDirty, setPhotosDirty] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [galleryCard, setGalleryCard] = useState<AnniversaryCardWithVoice | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { toast } = useToast();
   const { data: cardsData, error: cardsError, mutate: mutateCards } =
@@ -148,6 +163,9 @@ export default function AnniversaryWall() {
         title: string;
         date: string;
         note: string;
+        voiceUrl?: string;
+        bgmUrl?: string;
+        bgmPreset?: string;
         repeatYearly: boolean;
         pinned: boolean;
         photos?: ReturnType<typeof photoPayload>;
@@ -155,6 +173,9 @@ export default function AnniversaryWall() {
         title: form.title.trim(),
         date: form.date.trim(),
         note: form.note.trim(),
+        voiceUrl: form.voiceUrl,
+        bgmUrl: "",
+        bgmPreset: "",
         repeatYearly: form.repeatYearly,
         pinned: form.pinned,
       };
@@ -181,7 +202,7 @@ export default function AnniversaryWall() {
     }
   };
 
-  const startEdit = (card: AnniversaryCard) => {
+  const startEdit = (card: AnniversaryCardWithVoice) => {
     if (!isAdmin) return;
     const photos = card.photos?.length ? card.photos : card.image ? [card.image] : [];
     setEditingId(card.id);
@@ -189,6 +210,7 @@ export default function AnniversaryWall() {
       title: card.title,
       date: card.date,
       note: card.note,
+      voiceUrl: card.voiceUrl ?? "",
       repeatYearly: card.repeatYearly,
       pinned: card.pinned,
       photos,
@@ -200,7 +222,7 @@ export default function AnniversaryWall() {
     setStatus(photos.length > 0 ? "正在编辑，可重新选择照片替换原照片。" : "正在编辑，可选择照片。", { autoClear: true });
   };
 
-  const remove = async (card: AnniversaryCard) => {
+  const remove = async (card: AnniversaryCardWithVoice) => {
     if (!isAdmin) {
       setStatus("请先登录后再删除。", { autoClear: true });
       return;
@@ -267,6 +289,13 @@ export default function AnniversaryWall() {
           <Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：第一次见面" disabled={!isAdmin} />
           <DatePicker value={form.date} onChange={(date) => setForm({ ...form, date })} disabled={!isAdmin} />
           <Textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="写一点那天的细节..." disabled={!isAdmin} />
+          <VoiceRecorder
+            folder="anniversaries"
+            value={form.voiceUrl}
+            disabled={!isAdmin || working}
+            onChange={(voiceUrl) => setForm((current) => ({ ...current, voiceUrl }))}
+            onError={(message) => setStatus(message, { autoClear: true })}
+          />
           <div className="grid gap-2 rounded-[7px] border border-dim/70 bg-white/36 p-3">
             <label className="flex items-center gap-2 text-sm font-medium text-ink/72">
               <input type="checkbox" checked={form.repeatYearly} onChange={(event) => setForm({ ...form, repeatYearly: event.target.checked })} disabled={!isAdmin} />
@@ -332,8 +361,11 @@ export default function AnniversaryWall() {
                         <p className="mt-1 text-sm font-medium text-ink/52">{card.date}</p>
                       </div>
                       <div className="flex shrink-0 gap-1">
-                        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-ink/46 transition hover:bg-mist/34 hover:text-sky disabled:opacity-35" type="button" onClick={() => startEdit(card)} disabled={!isAdmin}>
+                      <button className="grid h-8 w-8 place-items-center rounded-[6px] text-ink/46 transition hover:bg-mist/34 hover:text-sky disabled:opacity-35" type="button" onClick={() => startEdit(card)} disabled={!isAdmin}>
                           <Pencil className="h-4 w-4" />
+                        </button>
+                        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-ink/46 transition hover:bg-mist/34 hover:text-bloom" type="button" onClick={() => setGalleryCard(card)}>
+                          <Images className="h-4 w-4" />
                         </button>
                         <button className="grid h-8 w-8 place-items-center rounded-[6px] text-ink/46 transition hover:bg-sakura/45 hover:text-rose-ink disabled:opacity-35" type="button" onClick={() => void remove(card)} disabled={!isAdmin || working}>
                           <Trash2 className="h-4 w-4" />
@@ -353,6 +385,15 @@ export default function AnniversaryWall() {
                       </div>
                     )}
                     {card.note && <p className="mt-3 line-clamp-3 text-sm leading-6 text-ink/68">{card.note}</p>}
+                    <div className="mt-3">
+                      <VoicePlayer src={card.voiceUrl} label="纪念日语音" compact />
+                    </div>
+                    <Link
+                      className="mt-3 inline-flex min-h-9 items-center justify-center rounded-[6px] border border-sakura/80 bg-sakura/28 px-3 text-sm font-semibold text-bloom transition hover:bg-sakura/45"
+                      href={`/anniversaries/replay?id=${encodeURIComponent(card.id)}`}
+                    >
+                      纪念日回放
+                    </Link>
                   </div>
                 </article>
               );
@@ -360,6 +401,7 @@ export default function AnniversaryWall() {
           </div>
         )}
       </section>
+      <AnniversaryGallery card={galleryCard} onClose={() => setGalleryCard(null)} />
     </MemoryPageShell>
   );
 }

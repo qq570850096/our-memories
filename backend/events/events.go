@@ -12,16 +12,21 @@ const (
 	MemoryCreated      Type = "memory.created"
 	MemoryUpdated      Type = "memory.updated"
 	MemoryDeleted      Type = "memory.deleted"
+	MemoryViewed       Type = "memory.viewed"
 	AnniversaryCreated Type = "anniversary.created"
 	AnniversaryUpdated Type = "anniversary.updated"
 	AnniversaryDeleted Type = "anniversary.deleted"
+	AnniversaryNear    Type = "anniversary.near"
 	TimeCapsuleCreated Type = "time_capsule.created"
 	TimeCapsuleUpdated Type = "time_capsule.updated"
 	TimeCapsuleOpened  Type = "time_capsule.opened"
 	TimeCapsuleDeleted Type = "time_capsule.deleted"
+	TimeCapsuleDue     Type = "time_capsule.due"
 	WhisperCreated     Type = "whisper.created"
 	WhisperReplied     Type = "whisper.replied"
 	WhisperDeleted     Type = "whisper.deleted"
+	WhisperTyping      Type = "whisper.typing"
+	SignalCreated      Type = "signal.created"
 )
 
 type DomainEvent struct {

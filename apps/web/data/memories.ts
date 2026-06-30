@@ -13,11 +13,14 @@ export interface Memory {
   visibility?: "both" | "me" | "her";
   partnerNote?: string;
   partnerNoteAuthorId?: string;
+  voiceTextUrl?: string;
+  partnerVoiceUrl?: string;
   placeName?: string;
   createdById?: string;
   createdAt?: string;
   updatedAt?: string;
   draft?: boolean;
+  pending?: boolean;
 }
 
 export interface MemorySummaryItem {

@@ -11,9 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"our-memories-backend/config"
 	"our-memories-backend/db"
+	"our-memories-backend/events"
 	"our-memories-backend/handlers"
 	"our-memories-backend/jobs"
 	"our-memories-backend/middleware"
+	"our-memories-backend/repositories"
+	"our-memories-backend/services"
 	"our-memories-backend/storage"
 )
 
@@ -22,7 +25,19 @@ func main() {
 	db.Init()
 	db.EnsureAdminFromEnv()
 	storage.InitS3()
+	accountRepo := repositories.NewAccountRepository(db.Gorm)
+	pushService := services.NewPushService(repositories.NewPushRepository(db.Gorm))
+	hub := events.NewConnectionHub()
+	handlers.SetWebSocketHub(hub)
+	dispatcher := events.NewDispatcher(
+		events.NewJPushPublisher(pushService),
+		events.NewNotificationPublisher(repositories.NewNotificationRepository(db.Gorm), accountRepo),
+		events.NewWSPublisher(hub),
+	)
+	handlers.SetEventPublisher(dispatcher)
 	jobs.StartPhotoSync()
+	jobs.StartPhotoCleanup()
+	jobs.StartScheduler(db.Gorm, dispatcher)
 
 	r := gin.Default()
 
@@ -38,6 +53,7 @@ func main() {
 	{
 		api.POST("/auth/login", handlers.Login)
 		api.POST("/auth/refresh", handlers.Refresh)
+		api.GET("/ws", handlers.WebSocket)
 
 		// 管理员路由
 		api.POST("/admin/login", handlers.AdminLogin)
@@ -67,12 +83,21 @@ func main() {
 			auth.PUT("/auth/password", handlers.UpdatePassword)
 			auth.POST("/push/devices", handlers.RegisterPushDevice)
 			auth.POST("/push/test", handlers.SendTestPush)
+			auth.GET("/notifications", handlers.GetNotifications)
+			auth.PATCH("/notifications/read-all", handlers.MarkAllNotificationsRead)
+			auth.PATCH("/notifications/:id/read", handlers.MarkNotificationRead)
+			auth.GET("/signals", handlers.GetSignals)
+			auth.POST("/signals", handlers.CreateSignal)
 
 			auth.GET("/memories", handlers.GetMemories)
+			auth.GET("/memories/search", handlers.SearchMemories)
 			auth.GET("/memories/summary", handlers.GetMemorySummary)
+			auth.GET("/memories/trash", handlers.GetTrashedMemories)
 			auth.GET("/memories/cities/:cityId", handlers.GetCityMemories)
+			auth.GET("/memories/:id/related", handlers.GetRelatedMemories)
 			auth.POST("/memories", handlers.CreateMemory)
 			auth.PATCH("/memories/:id", handlers.UpdateMemory)
+			auth.POST("/memories/:id/restore", handlers.RestoreMemory)
 			auth.DELETE("/memories/:id", handlers.DeleteMemory)
 
 			auth.GET("/city-assets", handlers.GetCityAssets)
@@ -81,6 +106,7 @@ func main() {
 
 			auth.GET("/anniversary-cards", handlers.GetAnniversaryCards)
 			auth.POST("/anniversary-cards", handlers.CreateAnniversaryCard)
+			auth.GET("/anniversary-cards/:id/replay", handlers.GetAnniversaryReplay)
 			auth.PATCH("/anniversary-cards/:id", handlers.UpdateAnniversaryCard)
 			auth.DELETE("/anniversary-cards/:id", handlers.DeleteAnniversaryCard)
 
@@ -90,6 +116,9 @@ func main() {
 
 			auth.GET("/settings", handlers.GetSettings)
 			auth.PUT("/settings/:key", handlers.UpdateSetting)
+			auth.GET("/agent/settings", handlers.GetAgentSettings)
+			auth.PATCH("/agent/settings", handlers.UpdateAgentSettings)
+			auth.POST("/agent/ignored", handlers.IgnoreAgentSuggestion)
 
 			auth.GET("/auxiliary-items", handlers.GetAuxiliaryItems)
 			auth.POST("/auxiliary-items", handlers.CreateAuxiliaryItem)
@@ -113,6 +142,7 @@ func main() {
 			auth.POST("/trip-guide-drafts/:id/accept", handlers.AcceptTripDraft)
 
 			auth.POST("/ai/memory-polish", handlers.PolishMemory)
+			auth.POST("/ai/memory-search", handlers.SearchMemoriesByIntent)
 			auth.POST("/activation-codes", handlers.CreateActivationCode)
 
 			auth.GET("/whispers", handlers.GetWhispers)

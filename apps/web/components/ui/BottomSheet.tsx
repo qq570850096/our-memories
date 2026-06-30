@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 type BottomSheetProps = {
@@ -46,6 +46,7 @@ export function BottomSheet({
 }: Readonly<BottomSheetProps>) {
   const dragControls = useDragControls();
   const [snapIndex, setSnapIndex] = useState(initialSnap);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // 每次打开重置到初始档位。
@@ -75,6 +76,35 @@ export function BottomSheet({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const updateInset = () => {
+      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setKeyboardInset(inset);
+    };
+
+    updateInset();
+    viewport.addEventListener("resize", updateInset);
+    viewport.addEventListener("scroll", updateInset);
+    return () => {
+      viewport.removeEventListener("resize", updateInset);
+      viewport.removeEventListener("scroll", updateInset);
+      setKeyboardInset(0);
+    };
+  }, [open]);
+
+  const handleFocusCapture = (event: FocusEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.matches("input, textarea, select")) return;
+    window.setTimeout(() => {
+      target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }, 80);
+  };
+
   const snapHeight = snapPoints[snapIndex] ?? snapPoints[0];
   const snapVh = `${snapHeight * 100}dvh`;
 
@@ -96,7 +126,10 @@ export function BottomSheet({
             ref={sheetRef}
             data-pull-refresh-ignore="true"
             className={`fixed inset-x-0 bottom-0 z-[60] flex max-h-[96dvh] flex-col rounded-t-[16px] border border-dim bg-cream shadow-[0_-18px_44px_rgba(90,102,112,0.18)] lg:hidden ${sheetClassName}`}
-            style={{ height: snapVh, paddingBottom: "env(safe-area-inset-bottom)" }}
+            style={{
+              height: snapVh,
+              paddingBottom: `calc(env(safe-area-inset-bottom) + ${keyboardInset}px)`,
+            }}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -124,6 +157,7 @@ export function BottomSheet({
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
+            onFocusCapture={handleFocusCapture}
           >
             {/* 拖拽手柄：仅此区域发起拖拽 */}
             <div

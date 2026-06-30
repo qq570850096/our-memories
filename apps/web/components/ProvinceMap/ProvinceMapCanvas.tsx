@@ -14,6 +14,7 @@ import {
 } from "./shared";
 import { CityMarker } from "./CityMarker";
 import { CityPreviewPopover } from "./CityPreviewPopover";
+import { SignalLayer } from "./SignalLayer";
 
 type ProvinceMapCanvasProps = {
   province: Province;
@@ -29,8 +30,12 @@ type ProvinceMapCanvasProps = {
   previewCityId: string | null;
   travelRoute: string;
   routePoints: ProvinceRoutePoint[];
+  signalCityIds: Set<string>;
+  sentSignalCityId: string | null;
   setPreviewCityId: Dispatch<SetStateAction<string | null>>;
   handleSelectCity: (cityId: string, lit: boolean) => void;
+  beginSignalPress: (cityId: string) => void;
+  clearSignalPress: () => void;
   clearLongPressPreview: () => void;
   beginLongPressPreview: (cityId: string) => void;
 };
@@ -49,8 +54,12 @@ export function ProvinceMapCanvas({
   previewCityId,
   travelRoute,
   routePoints,
+  signalCityIds,
+  sentSignalCityId,
   setPreviewCityId,
   handleSelectCity,
+  beginSignalPress,
+  clearSignalPress,
   clearLongPressPreview,
   beginLongPressPreview,
 }: Readonly<ProvinceMapCanvasProps>) {
@@ -234,10 +243,20 @@ export function ProvinceMapCanvas({
               onPointerDown={(event) => {
                 if (event.pointerType === "mouse") return;
                 beginLongPressPreview(city.id);
+                beginSignalPress(city.id);
               }}
-              onPointerUp={clearLongPressPreview}
-              onPointerCancel={clearLongPressPreview}
-              onPointerLeave={clearLongPressPreview}
+              onPointerUp={() => {
+                clearLongPressPreview();
+                clearSignalPress();
+              }}
+              onPointerCancel={() => {
+                clearLongPressPreview();
+                clearSignalPress();
+              }}
+              onPointerLeave={() => {
+                clearLongPressPreview();
+                clearSignalPress();
+              }}
               aria-label={`${city.lit ? "查看" : "添加"}${city.name}回忆`}
             >
               <CityMarker city={city} lit={city.lit} selected={selected} memoryCount={city.memoryCount} />
@@ -249,6 +268,7 @@ export function ProvinceMapCanvas({
             </motion.button>
           );
         })}
+        <SignalLayer activeCityIds={signalCityIds} sentCityId={sentSignalCityId} mapCities={mapCities} />
       </motion.div>
     </div>
   );

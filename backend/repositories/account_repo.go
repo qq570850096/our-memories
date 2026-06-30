@@ -128,6 +128,17 @@ func (r *AccountRepository) UserByID(userID string) (models.User, error) {
 	return userModel(record), err
 }
 
+func (r *AccountRepository) UserIDsForSpaceExcept(spaceID string, userID string) ([]string, error) {
+	var ids []string
+	query := r.db.Model(&UserRecord{}).
+		Where("space_id = ?", spaceID)
+	if userID != "" {
+		query = query.Where("id <> ?", userID)
+	}
+	err := query.Pluck("id", &ids).Error
+	return ids, err
+}
+
 func (r *AccountRepository) AdminByUsername(username string) (models.Admin, error) {
 	var record AdminRecord
 	err := r.db.

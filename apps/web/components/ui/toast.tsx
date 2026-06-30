@@ -1,6 +1,5 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, AlertCircle, Info, XCircle, X } from "lucide-react";
 import {
   createContext,
@@ -65,34 +64,27 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
     <ToastContext.Provider value={value}>
       {children}
       <div className="pointer-events-none fixed inset-x-0 top-4 z-[80] flex flex-col items-center gap-2 px-4">
-        <AnimatePresence>
-          {toasts.map((t) => {
-            const cfg = variantConfig[t.variant];
-            const Icon = cfg.icon;
-            return (
-              <motion.div
-                key={t.id}
-                layout
-                className="pointer-events-auto flex max-w-sm items-center gap-2.5 rounded-[8px] border border-dim/80 bg-cream px-4 py-3 shadow-[var(--shadow-card-strong)]"
-                initial={{ opacity: 0, y: -16, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -12, scale: 0.96 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
+        {toasts.map((t) => {
+          const cfg = variantConfig[t.variant];
+          const Icon = cfg.icon;
+          return (
+            <div
+              key={t.id}
+              className="pointer-events-auto flex max-w-sm animate-[toast-enter_0.2s_ease-out] items-center gap-2.5 rounded-[8px] border border-dim/80 bg-cream px-4 py-3 shadow-[var(--shadow-card-strong)]"
+            >
+              <Icon className={`shrink-0 ${cfg.accent}`} size={18} />
+              <span className="flex-1 text-sm text-ink">{t.message}</span>
+              <button
+                type="button"
+                onClick={() => dismiss(t.id)}
+                className="shrink-0 rounded-[6px] p-0.5 text-ink/40 transition hover:bg-dim/30 hover:text-ink"
+                aria-label="关闭"
               >
-                <Icon className={`shrink-0 ${cfg.accent}`} size={18} />
-                <span className="flex-1 text-sm text-ink">{t.message}</span>
-                <button
-                  type="button"
-                  onClick={() => dismiss(t.id)}
-                  className="shrink-0 rounded-[6px] p-0.5 text-ink/40 transition hover:bg-dim/30 hover:text-ink"
-                  aria-label="关闭"
-                >
-                  <X size={14} />
-                </button>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                <X size={14} />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

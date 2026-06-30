@@ -156,12 +156,14 @@ export default function MapPage() {
               </div>
               <ProgressBadge />
             </div>
-            <BackToLoginButton />
+            <div className="pr-14 sm:pr-16">
+              <BackToLoginButton />
+            </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 items-center justify-center pb-[10.5rem] pt-0 sm:pb-20 lg:pb-6">
+          <div className="flex min-h-0 flex-1 items-center justify-center pb-[8.25rem] pt-0 sm:pb-20 lg:pb-6">
             <ChinaMap
-              className="mobile-map-shell -translate-y-8 sm:translate-y-0"
+              className="mobile-map-shell -translate-y-5 sm:translate-y-0"
               width={1100}
               height={860}
             />

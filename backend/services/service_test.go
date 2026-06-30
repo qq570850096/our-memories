@@ -145,6 +145,90 @@ func TestMemoryServiceCreateAndPartnerNoteUpdate(t *testing.T) {
 	}
 }
 
+func TestMemoryServiceDeleteRestoresAndDefersPhotoCleanup(t *testing.T) {
+	setupServiceTestDB(t)
+	recorder := &recordedEvents{}
+	deleteCalls := 0
+	loader := func(_ string, _ string) (map[string][]gin.H, error) {
+		return map[string][]gin.H{"shanghai": {}}, nil
+	}
+	service := NewMemoryService(
+		repositories.NewMemoryRepository(db.Gorm),
+		loader,
+		func(string, string, []PhotoInput) error { return nil },
+		func(string, []StoredPhoto) error {
+			deleteCalls++
+			return nil
+		},
+		recorder,
+	)
+
+	memoryID, _, err := service.Create("space-1", "user-1", CreateMemoryRequest{
+		CityID:     "shanghai",
+		City:       "上海",
+		CityEn:     "Shanghai",
+		Date:       "2026-06-28",
+		Text:       "keep this",
+		Visibility: "both",
+		Photos: []PhotoInput{{
+			Key:      "space-1/memories/photo.jpg",
+			URL:      "https://cdn.example.com/space-1/memories/photo.jpg",
+			MimeType: "image/jpeg",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Delete("space-1", "user-2", memoryID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected non-creator delete to be forbidden, got %v", err)
+	}
+	if _, err := service.Delete("space-1", "user-1", memoryID); err != nil {
+		t.Fatal(err)
+	}
+	if deleteCalls != 0 {
+		t.Fatalf("expected soft delete not to delete photos immediately, got %d calls", deleteCalls)
+	}
+
+	var activeCount, photoCount int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM memories WHERE id = ? AND deleted_at IS NULL`, memoryID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 0 {
+		t.Fatalf("expected deleted memory to be hidden from active query, got %d", activeCount)
+	}
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM memory_photos WHERE memory_id = ?`, memoryID).Scan(&photoCount); err != nil {
+		t.Fatal(err)
+	}
+	if photoCount != 1 {
+		t.Fatalf("expected photos to remain while memory is in trash, got %d", photoCount)
+	}
+
+	trash, err := service.ListTrash("space-1", "user-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trash) != 1 || trash[0]["id"] != memoryID || trash[0]["deletedAt"] == "" {
+		t.Fatalf("expected memory in trash with deletedAt, got %#v", trash)
+	}
+
+	if _, err := service.Restore("space-1", "user-2", memoryID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected non-creator restore to be forbidden, got %v", err)
+	}
+	if _, err := service.Restore("space-1", "user-1", memoryID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM memories WHERE id = ? AND deleted_at IS NULL`, memoryID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("expected memory to be restored, got active count %d", activeCount)
+	}
+	if len(recorder.items) != 3 || recorder.items[1].Type != events.MemoryDeleted || recorder.items[2].Type != events.MemoryUpdated {
+		t.Fatalf("expected create/delete/restore events, got %#v", recorder.items)
+	}
+}
+
 func TestAnniversaryServicePermissionsPhotoCleanupAndEvents(t *testing.T) {
 	setupServiceTestDB(t)
 	recorder := &recordedEvents{}
@@ -252,6 +336,46 @@ func TestSettingServiceDefaultsAndAuxiliaryItems(t *testing.T) {
 	}
 	if settings["anniversaryDate"] != "2026-07-01" {
 		t.Fatalf("expected stored setting to override env default, got %#v", settings)
+	}
+
+	agentSettings, err := service.AgentSettings("space-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agentSettings.Enabled {
+		t.Fatalf("expected agent to default off, got %#v", agentSettings)
+	}
+	if err := service.UpdateAgentSettings("space-1", AgentSettings{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	agentSettings, err = service.AgentSettings("space-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !agentSettings.Enabled {
+		t.Fatalf("expected agent to be enabled, got %#v", agentSettings)
+	}
+	ignored, err := service.IgnoreAgentSuggestion("space-1", IgnoreAgentSuggestionRequest{
+		Agent:    "memory_mood",
+		TargetID: "memory-1",
+		Reason:   "not now",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ignored) != 1 || ignored[0].IgnoredAt == "" {
+		t.Fatalf("unexpected ignored suggestions: %#v", ignored)
+	}
+	ignored, err = service.IgnoreAgentSuggestion("space-1", IgnoreAgentSuggestionRequest{
+		Agent:    "memory_mood",
+		TargetID: "memory-1",
+		Reason:   "still no",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ignored) != 1 || ignored[0].Reason != "still no" {
+		t.Fatalf("expected duplicate ignore to update in place, got %#v", ignored)
 	}
 
 	itemID, err := service.CreateAuxiliaryItem("space-1", CreateAuxiliaryItemRequest{
@@ -378,7 +502,7 @@ func TestTimeCapsuleServiceLimitAndOpenRules(t *testing.T) {
 		t.Fatalf("expected upload not to run when limit is reached, got %d calls", uploadCalls)
 	}
 
-	if err := service.Open("space-1", "future-1"); !errors.Is(err, ErrTimeCapsuleLocked) {
+	if err := service.Open("space-1", "user-1", "future-1"); !errors.Is(err, ErrTimeCapsuleLocked) {
 		t.Fatalf("expected locked capsule error, got %v", err)
 	}
 
@@ -389,7 +513,7 @@ func TestTimeCapsuleServiceLimitAndOpenRules(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Open("space-1", "past-1"); err != nil {
+	if err := service.Open("space-1", "user-1", "past-1"); err != nil {
 		t.Fatal(err)
 	}
 	var opened int
@@ -401,6 +525,49 @@ func TestTimeCapsuleServiceLimitAndOpenRules(t *testing.T) {
 	}
 	if len(recorder.items) != 1 || recorder.items[0].Type != events.TimeCapsuleOpened || recorder.items[0].TargetID != "past-1" {
 		t.Fatalf("expected time_capsule.opened event, got %#v", recorder.items)
+	}
+
+	if _, err := db.DB.Exec(
+		`INSERT INTO time_capsules (id, space_id, title, open_date, content, open_mode, opened_by_user_ids, created_by_id) VALUES ('together-1', 'space-1', 'Together', ?, 'wait together', 'together', '[]', 'user-1')`,
+		past,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Open("space-1", "user-1", "together-1"); err != nil {
+		t.Fatal(err)
+	}
+	var firstOpened int
+	var openedBy string
+	if err := db.DB.QueryRow(`SELECT is_opened, opened_by_user_ids FROM time_capsules WHERE id = 'together-1'`).Scan(&firstOpened, &openedBy); err != nil {
+		t.Fatal(err)
+	}
+	if firstOpened != 0 || !strings.Contains(openedBy, "user-1") {
+		t.Fatalf("expected first ready without reveal, opened=%d openedBy=%s", firstOpened, openedBy)
+	}
+	if err := service.Open("space-1", "user-2", "together-1"); err != nil {
+		t.Fatal(err)
+	}
+	var secondOpened int
+	var revealedAt string
+	if err := db.DB.QueryRow(`SELECT is_opened, revealed_at FROM time_capsules WHERE id = 'together-1'`).Scan(&secondOpened, &revealedAt); err != nil {
+		t.Fatal(err)
+	}
+	if secondOpened != 1 || revealedAt == "" {
+		t.Fatalf("expected second ready to reveal, opened=%d revealedAt=%q", secondOpened, revealedAt)
+	}
+}
+
+func TestCanOpenTimeCapsuleUsesLocalDayForDateOnlyValues(t *testing.T) {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 30, 7, 30, 0, 0, location)
+	if !canOpenTimeCapsuleAt("2026-06-30", now) {
+		t.Fatal("expected date-only capsule to open on the local calendar day")
+	}
+	if canOpenTimeCapsuleAt("2026-07-01", now) {
+		t.Fatal("expected future local calendar day to stay locked")
 	}
 }
 

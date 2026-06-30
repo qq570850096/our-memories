@@ -2,10 +2,14 @@ package services
 
 import (
 	"os"
+	"time"
 
 	"our-memories-backend/repositories"
 	"our-memories-backend/utils"
 )
+
+const agentSettingsKey = "agentSettings"
+const agentIgnoredSuggestionsKey = "agentIgnoredSuggestions"
 
 type CreateAuxiliaryItemRequest struct {
 	Kind   string `json:"kind" binding:"required"`
@@ -37,6 +41,23 @@ type AuxiliaryItem struct {
 
 type SettingService struct {
 	repo *repositories.SettingRepository
+}
+
+type AgentSettings struct {
+	Enabled bool `json:"enabled"`
+}
+
+type AgentIgnoredSuggestion struct {
+	Agent     string `json:"agent"`
+	TargetID  string `json:"targetId"`
+	Reason    string `json:"reason,omitempty"`
+	IgnoredAt string `json:"ignoredAt"`
+}
+
+type IgnoreAgentSuggestionRequest struct {
+	Agent    string `json:"agent" binding:"required"`
+	TargetID string `json:"targetId" binding:"required"`
+	Reason   string `json:"reason"`
 }
 
 func NewSettingService(repo *repositories.SettingRepository) *SettingService {
@@ -71,6 +92,47 @@ func (s *SettingService) Upsert(spaceID string, key string, value any) error {
 
 func (s *SettingService) Delete(spaceID string, key string) error {
 	return s.repo.Delete(spaceID, key)
+}
+
+func (s *SettingService) AgentSettings(spaceID string) (AgentSettings, error) {
+	settings := AgentSettings{Enabled: false}
+	if err := s.repo.ReadJSON(spaceID, agentSettingsKey, &settings); err != nil {
+		return AgentSettings{}, err
+	}
+	return settings, nil
+}
+
+func (s *SettingService) UpdateAgentSettings(spaceID string, settings AgentSettings) error {
+	return s.repo.UpsertJSON(utils.NewID(), spaceID, agentSettingsKey, settings)
+}
+
+func (s *SettingService) IgnoredAgentSuggestions(spaceID string) ([]AgentIgnoredSuggestion, error) {
+	ignored := []AgentIgnoredSuggestion{}
+	if err := s.repo.ReadJSON(spaceID, agentIgnoredSuggestionsKey, &ignored); err != nil {
+		return nil, err
+	}
+	return ignored, nil
+}
+
+func (s *SettingService) IgnoreAgentSuggestion(spaceID string, req IgnoreAgentSuggestionRequest) ([]AgentIgnoredSuggestion, error) {
+	ignored, err := s.IgnoredAgentSuggestions(spaceID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ignored {
+		if ignored[i].Agent == req.Agent && ignored[i].TargetID == req.TargetID {
+			ignored[i].Reason = req.Reason
+			ignored[i].IgnoredAt = time.Now().UTC().Format(time.RFC3339)
+			return ignored, s.repo.UpsertJSON(utils.NewID(), spaceID, agentIgnoredSuggestionsKey, ignored)
+		}
+	}
+	ignored = append(ignored, AgentIgnoredSuggestion{
+		Agent:     req.Agent,
+		TargetID:  req.TargetID,
+		Reason:    req.Reason,
+		IgnoredAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	return ignored, s.repo.UpsertJSON(utils.NewID(), spaceID, agentIgnoredSuggestionsKey, ignored)
 }
 
 func (s *SettingService) ListAuxiliaryItems(spaceID string, kind string) ([]AuxiliaryItem, error) {

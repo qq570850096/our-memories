@@ -3,7 +3,6 @@ package repositories
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -66,16 +65,16 @@ func (r *SettingRepository) List(spaceID string) (map[string]any, error) {
 
 func (r *SettingRepository) ReadJSON(spaceID string, key string, target any) error {
 	var record SettingRecord
-	err := r.db.
+	result := r.db.
 		Select("value").
 		Where("space_id = ? AND key = ?", spaceID, key).
-		First(&record).
-		Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
+		Limit(1).
+		Find(&record)
+	if result.Error != nil {
+		return result.Error
 	}
-	if err != nil {
-		return err
+	if result.RowsAffected == 0 {
+		return nil
 	}
 	return json.Unmarshal([]byte(record.Value), target)
 }

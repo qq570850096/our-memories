@@ -8,6 +8,7 @@ import {
   BookOpen,
   CalendarDays,
   Heart,
+  NotebookPen,
   Map as MapIcon,
   MessageCircle,
   MoreHorizontal,
@@ -23,7 +24,7 @@ const navItems = [
   { key: "map", label: "地图", icon: MapIcon, href: "/map" },
   { key: "memories", label: "回忆记录", icon: BookOpen, href: "/memories" },
   { key: "anniversaries", label: "纪念日", icon: CalendarDays, href: "/anniversaries" },
-  { key: "favorites", label: "地点收藏", icon: Heart, href: "/favorites" },
+  { key: "favorites", label: "双人日记", icon: NotebookPen, href: "/favorites" },
   { key: "whispers", label: "悄悄话", icon: MessageCircle, href: "/whispers" },
   { key: "capsule", label: "时光宝盒", icon: Archive, href: "/time-capsule" },
 ] satisfies Array<{
@@ -32,6 +33,103 @@ const navItems = [
   icon: typeof MapIcon;
   href: string;
 }>;
+
+const mainNavKeys: MemoryNavKey[] = ["map", "memories", "anniversaries"];
+const moreNavKeys: MemoryNavKey[] = ["whispers", "favorites", "capsule"];
+
+function MobileBottomNav({
+  active,
+  moreOpen,
+  onToggleMore,
+  onCloseMore,
+}: Readonly<{
+  active: MemoryNavKey;
+  moreOpen: boolean;
+  onToggleMore: () => void;
+  onCloseMore: () => void;
+}>) {
+  const mainItems = navItems.filter((item) => mainNavKeys.includes(item.key));
+  const moreItems = navItems.filter((item) => moreNavKeys.includes(item.key));
+  const moreSelected = moreItems.some((item) => item.key === active);
+
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-dim/72 bg-cream/96 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-16px_36px_rgba(90,102,112,0.12)] backdrop-blur-xl lg:hidden">
+      <div className="mx-auto grid max-w-md grid-cols-4 items-end gap-1">
+        {mainItems.map((item) => {
+          const Icon = item.icon;
+          const selected = item.key === active;
+
+          return (
+            <Link
+              key={item.key}
+              className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-[8px] px-2 text-[11px] font-semibold transition active:scale-[0.98] ${
+                selected
+                  ? "bg-sakura/72 text-rose-ink"
+                  : "text-ink/58 hover:bg-white/58 focus-visible:bg-white/70"
+              }`}
+              href={item.href}
+              onClick={onCloseMore}
+            >
+              <Icon className="h-5 w-5" />
+              <span>{item.label === "回忆记录" ? "回忆" : item.label}</span>
+            </Link>
+          );
+        })}
+
+        <button
+          className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-[8px] px-2 text-[11px] font-semibold transition active:scale-[0.98] ${
+            moreOpen || moreSelected
+              ? "bg-sakura/72 text-rose-ink"
+              : "text-ink/58 hover:bg-white/58 focus-visible:bg-white/70"
+          }`}
+          type="button"
+          onClick={onToggleMore}
+          aria-expanded={moreOpen}
+          aria-controls="memory-mobile-more"
+        >
+          <MoreHorizontal className="h-5 w-5" />
+          <span>更多</span>
+        </button>
+      </div>
+
+      {moreOpen && (
+        <>
+          <button
+            className="fixed inset-0 z-0 cursor-default"
+            type="button"
+            onClick={onCloseMore}
+            aria-label="关闭更多导航"
+          />
+          <div
+            id="memory-mobile-more"
+            className="absolute bottom-[calc(100%+0.5rem)] left-3 right-3 z-10 mx-auto grid max-w-md grid-cols-2 gap-2 rounded-[8px] border border-dim/82 bg-cream/97 p-2 shadow-[0_18px_44px_rgba(90,102,112,0.16)] backdrop-blur-xl"
+          >
+            {moreItems.map((item) => {
+              const Icon = item.icon;
+              const selected = item.key === active;
+
+              return (
+                <Link
+                  key={item.key}
+                  className={`flex min-h-12 items-center gap-3 rounded-[8px] px-3 text-sm font-semibold transition active:scale-[0.99] ${
+                    selected
+                      ? "bg-sakura/72 text-rose-ink"
+                      : "text-ink/68 hover:bg-white/60"
+                  }`}
+                  href={item.href}
+                  onClick={onCloseMore}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </nav>
+  );
+}
 
 export function MemorySidebar({ active }: Readonly<{ active: MemoryNavKey }>) {
   return (
@@ -127,83 +225,19 @@ export function MemoryPageShell({
       <span className="absolute right-[17%] top-[15%] h-2 w-2 bg-mist" aria-hidden="true" />
       <div className="relative z-10 flex min-h-screen">
         <MemorySidebar active={active} />
-        <section className="memory-page-content min-w-0 flex-1 px-4 pb-20 pt-4 sm:px-10 sm:py-8 lg:pb-8">
+        <section className="memory-page-content min-w-0 flex-1 px-4 pb-24 pt-4 sm:px-10 sm:py-8 lg:pb-8">
           <PageTransition>
             {children}
           </PageTransition>
         </section>
       </div>
 
-      {/* 底部导航固定在底部（仅移动端） */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-dim/78 bg-cream/95 backdrop-blur-lg lg:hidden">
-        <div className="grid grid-cols-5 gap-1 px-2 py-2">
-          {navItems
-            .filter((item) => ["map", "memories", "anniversaries", "whispers"].includes(item.key))
-            .map((item) => {
-              const Icon = item.icon;
-              const selected = item.key === active;
-
-              return (
-                <Link
-                  key={item.key}
-                  className={`flex flex-col items-center gap-1 rounded-lg px-2 py-2 transition ${
-                    selected
-                      ? "bg-sakura text-rose-ink"
-                      : "text-ink/54 hover:bg-white/58"
-                  }`}
-                  href={item.href}
-                  onClick={() => setMoreOpen(false)}
-                >
-                  <Icon className="h-5 w-5" />
-                  <span className="text-[11px] font-semibold">{item.label}</span>
-                </Link>
-              );
-            })}
-
-          {/* 更多按钮 */}
-          <button
-            className="flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-ink/54 transition hover:bg-white/58"
-            onClick={() => setMoreOpen(!moreOpen)}
-          >
-            <MoreHorizontal className="h-5 w-5" />
-            <span className="text-[11px] font-semibold">更多</span>
-          </button>
-        </div>
-
-        {/* 更多菜单弹出层 */}
-        {moreOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setMoreOpen(false)}
-            />
-            <div className="absolute bottom-full left-3 right-3 mb-2 grid grid-cols-3 gap-2 rounded-[8px] border border-dim/85 bg-cream/95 p-2 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl">
-              {navItems
-                .filter((item) => ["favorites", "capsule"].includes(item.key))
-                .map((item) => {
-                  const Icon = item.icon;
-                  const selected = item.key === active;
-
-                  return (
-                    <Link
-                      key={item.key}
-                      className={`flex flex-col items-center gap-1 rounded-lg px-2 py-2 transition ${
-                        selected
-                          ? "bg-sakura text-rose-ink"
-                          : "text-ink/64 hover:bg-white/60"
-                      }`}
-                      href={item.href}
-                      onClick={() => setMoreOpen(false)}
-                    >
-                      <Icon className="h-4 w-4" />
-                      <span className="text-xs font-semibold">{item.label}</span>
-                    </Link>
-                  );
-                })}
-            </div>
-          </>
-        )}
-      </nav>
+      <MobileBottomNav
+        active={active}
+        moreOpen={moreOpen}
+        onToggleMore={() => setMoreOpen((current) => !current)}
+        onCloseMore={() => setMoreOpen(false)}
+      />
     </main>
   );
 }
@@ -215,71 +249,12 @@ export function MapPageShell({ children }: Readonly<{ children: ReactNode }>) {
     <>
       {children}
 
-      {/* 底部导航固定在底部（仅移动端） */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-dim/78 bg-cream/95 backdrop-blur-lg lg:hidden">
-        <div className="grid grid-cols-5 gap-1 px-2 py-2">
-          {navItems
-            .filter((item) => ["map", "memories", "anniversaries", "whispers"].includes(item.key))
-            .map((item) => {
-              const Icon = item.icon;
-              const selected = item.key === "map";
-
-              return (
-                <Link
-                  key={item.key}
-                  className={`flex flex-col items-center gap-1 rounded-lg px-2 py-2 transition ${
-                    selected
-                      ? "bg-sakura text-rose-ink"
-                      : "text-ink/54 hover:bg-white/58"
-                  }`}
-                  href={item.href}
-                  onClick={() => setMoreOpen(false)}
-                >
-                  <Icon className="h-5 w-5" />
-                  <span className="text-[11px] font-semibold">{item.label}</span>
-                </Link>
-              );
-            })}
-
-          {/* 更多按钮 */}
-          <button
-            className="flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-ink/54 transition hover:bg-white/58"
-            onClick={() => setMoreOpen(!moreOpen)}
-          >
-            <MoreHorizontal className="h-5 w-5" />
-            <span className="text-[11px] font-semibold">更多</span>
-          </button>
-        </div>
-
-        {/* 更多菜单弹出层 */}
-        {moreOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setMoreOpen(false)}
-            />
-            <div className="absolute bottom-full left-3 right-3 mb-2 grid grid-cols-3 gap-2 rounded-[8px] border border-dim/85 bg-cream/95 p-2 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl">
-              {navItems
-                .filter((item) => ["favorites", "capsule"].includes(item.key))
-                .map((item) => {
-                  const Icon = item.icon;
-
-                  return (
-                    <Link
-                      key={item.key}
-                      className="flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-ink/64 transition hover:bg-white/60"
-                      href={item.href}
-                      onClick={() => setMoreOpen(false)}
-                    >
-                      <Icon className="h-4 w-4" />
-                      <span className="text-xs font-semibold">{item.label}</span>
-                    </Link>
-                  );
-                })}
-            </div>
-          </>
-        )}
-      </nav>
+      <MobileBottomNav
+        active="map"
+        moreOpen={moreOpen}
+        onToggleMore={() => setMoreOpen((current) => !current)}
+        onCloseMore={() => setMoreOpen(false)}
+      />
     </>
   );
 }

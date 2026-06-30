@@ -1,6 +1,7 @@
 "use client";
 
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
+import { VoicePlayer } from "@/components/ui/VoicePlayer";
 import type { Memory } from "@/data/memories";
 import { isBrowserImageUrl } from "@/lib/image";
 import { memorySupplementLabel } from "@/lib/memorySupplement";
@@ -73,13 +74,17 @@ export function MemoryContentView({
       )}
 
       <p className="text-sm leading-7 text-ink/82">{memory.text}</p>
+      <VoicePlayer src={memory.voiceTextUrl} label="回忆语音" />
 
-      {memory.partnerNote && (
+      {(memory.partnerNote || memory.partnerVoiceUrl) && (
         <div className="rounded-[7px] border border-sakura/70 bg-sakura/24 px-3 py-2">
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-bloom/80">
             {memorySupplementLabel(memory)}
           </p>
-          <p className="text-xs leading-5 text-ink/70">{memory.partnerNote}</p>
+          {memory.partnerNote && <p className="text-xs leading-5 text-ink/70">{memory.partnerNote}</p>}
+          <div className={memory.partnerNote ? "mt-2" : ""}>
+            <VoicePlayer src={memory.partnerVoiceUrl} label="补充语音" compact />
+          </div>
         </div>
       )}
 

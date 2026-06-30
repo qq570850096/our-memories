@@ -10,6 +10,7 @@ import type { MemoryPatchPayload, MemoryPhotoPayload } from "@/lib/memoryApi";
 import { memoryTextMaxLength, useMemoryEditor } from "@/components/memories/useMemoryEditor";
 import { DatePicker } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { VoiceRecorder } from "@/components/ui/VoiceRecorder";
 import { useConfirm } from "@/components/ui/use-confirm";
 import { computeMemoryEditAccess, useMemoryEditAccess } from "@/lib/useContentEditAccess";
 import { deleteUploaded, uploadImage } from "@/lib/upload";
@@ -25,6 +26,7 @@ export function MemoryCard({
   isAdmin,
   onClose,
   onSave,
+  onOptimisticSave,
   onSetCover,
   onUpdate,
   onDelete,
@@ -39,7 +41,8 @@ export function MemoryCard({
   anchor: CardAnchor | null;
   isAdmin: boolean;
   onClose: () => void;
-  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[]) => Promise<void>;
+  onSave: (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[], rollbackPending?: () => void) => Promise<void>;
+  onOptimisticSave: (cityId: string, memory: Memory) => (() => void) | void;
   onSetCover: (cityId: string, memoryId: string, coverImage: string) => Promise<void>;
   onUpdate: (cityId: string, memoryId: string, memory: MemoryPatchPayload) => Promise<void>;
   onDelete: (cityId: string, memoryId: string) => Promise<void>;
@@ -72,12 +75,16 @@ export function MemoryCard({
     setDate,
     text,
     setText,
+    voiceTextUrl,
+    setVoiceTextUrl,
     mood,
     setMood,
     tags,
     setTags,
     partnerNote,
     setPartnerNote,
+    partnerVoiceUrl,
+    setPartnerVoiceUrl,
     visibility,
     setVisibility,
     photoDrafts,
@@ -86,6 +93,7 @@ export function MemoryCard({
     polishError,
     polishing,
     saveError,
+    setSaveError,
     coverError,
     setCoverError,
     editingMemory,
@@ -111,6 +119,7 @@ export function MemoryCard({
     fallbackImage: landmarkImage,
     isAdmin,
     annotationSaveMode: "changed",
+    onOptimisticSave,
     onSave,
     onUpdate,
   });
@@ -211,8 +220,10 @@ export function MemoryCard({
     }
   };
 
-  const handleSave = async () => {
-    if (await saveMemoryForm()) setFormOpen(false);
+  const handleSave = () => {
+    if (!canSave) return;
+    setFormOpen(false);
+    void saveMemoryForm();
   };
 
   const handleSetCover = async (photo: string) => {
@@ -299,7 +310,7 @@ export function MemoryCard({
           {([
             ["memory", "回忆"],
             ["gallery", "相册"],
-            ["history", "历史"],
+            ["history", "日记"],
           ] as const).map(([tab, label]) => (
             <button
               key={tab}
@@ -480,8 +491,8 @@ export function MemoryCard({
       {showHistory && (
         <div className="mt-4 border-t border-dashed border-dim pt-4">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="text-xs font-semibold text-ink/70">历史记录</p>
-            <span className="text-[11px] text-ink/42">{memories.length} 条</span>
+            <p className="text-xs font-semibold text-ink/70">回忆日记线索</p>
+            <span className="text-[11px] text-ink/42">{memories.length} 条回忆</span>
           </div>
           <div className={`mt-3 ${expanded ? "space-y-4" : "space-y-3"}`}>
             {memories.map((record, recordIndex) => {
@@ -585,15 +596,18 @@ export function MemoryCard({
       )}
 
       {showMemory && !formOpen && (
-        <button
-          className="mt-4 flex w-full items-center gap-2 border-t border-dashed border-dim pt-4 text-sm font-medium text-ink/78 transition hover:text-sky"
-          type="button"
-          onClick={() => setFormOpen(true)}
-          disabled={!isAdmin}
-        >
-          <Plus className="h-4 w-4" />
-          {isLit ? "Add memory" : "Add memory to light"}
-        </button>
+        <>
+          <button
+            className="mt-4 flex w-full items-center gap-2 border-t border-dashed border-dim pt-4 text-sm font-medium text-ink/78 transition hover:text-sky"
+            type="button"
+            onClick={() => setFormOpen(true)}
+            disabled={!isAdmin}
+          >
+            <Plus className="h-4 w-4" />
+            {isLit ? "Add memory" : "Add memory to light"}
+          </button>
+          {saveError && <p className="mt-2 text-xs text-bloom">{saveError}</p>}
+        </>
       )}
 
       <AnimatePresence initial={false}>
@@ -664,6 +678,13 @@ export function MemoryCard({
                       maxLength={memoryTextMaxLength}
                     />
                   </label>
+                  <VoiceRecorder
+                    folder="memories"
+                    value={voiceTextUrl}
+                    disabled={!canEditFields}
+                    onChange={(url) => setVoiceTextUrl(url)}
+                    onError={setSaveError}
+                  />
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block">
@@ -806,17 +827,26 @@ export function MemoryCard({
               )}
 
               {canAnnotate && (
-                <label className="block">
-                  <span className="text-xs font-medium text-ink/70">补充回忆</span>
-                  <textarea
-                    className="mt-1.5 w-full resize-none rounded-[6px] border border-dim bg-cream px-3 py-2 text-sm leading-6 text-ink placeholder:text-ink/40 outline-none transition focus:border-bloom"
-                    rows={4}
-                    value={partnerNote}
-                    onChange={(event) => setPartnerNote(event.target.value)}
-                    placeholder="留给另一个人的一句补充..."
-                    maxLength={500}
+                <div className="space-y-2">
+                  <label className="block">
+                    <span className="text-xs font-medium text-ink/70">补充回忆</span>
+                    <textarea
+                      className="mt-1.5 w-full resize-none rounded-[6px] border border-dim bg-cream px-3 py-2 text-sm leading-6 text-ink placeholder:text-ink/40 outline-none transition focus:border-bloom"
+                      rows={4}
+                      value={partnerNote}
+                      onChange={(event) => setPartnerNote(event.target.value)}
+                      placeholder="留给另一个人的一句补充..."
+                      maxLength={500}
+                    />
+                  </label>
+                  <VoiceRecorder
+                    folder="memories"
+                    value={partnerVoiceUrl}
+                    disabled={!canAnnotate}
+                    onChange={(url) => setPartnerVoiceUrl(url)}
+                    onError={setSaveError}
                   />
-                </label>
+                </div>
               )}
 
               <div className="sticky bottom-0 -mx-5 flex items-center gap-2 border-t border-dim/70 bg-cream/96 px-5 pb-1 pt-3 shadow-[0_-10px_18px_rgba(250,251,247,0.88)] backdrop-blur">

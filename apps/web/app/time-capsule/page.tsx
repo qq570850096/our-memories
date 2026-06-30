@@ -10,9 +10,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { VoicePlayer } from "@/components/ui/VoicePlayer";
+import { VoiceRecorder } from "@/components/ui/VoiceRecorder";
 import { useConfirm } from "@/components/ui/use-confirm";
 import { useToast } from "@/components/ui/toast";
-import { apiJson } from "@/lib/apiClient";
+import { ApiError, apiJson } from "@/lib/apiClient";
 import { useAuth } from "@/lib/authContext";
 import { useContentEditAccess } from "@/lib/useContentEditAccess";
 import { useTransientStatus } from "@/lib/useTransientStatus";
@@ -34,13 +36,24 @@ type TimeCapsule = {
   title: string;
   openDate: string;
   content: string;
+  voiceUrl?: string;
+  openMode?: "single" | "together";
+  openedByUserIds?: string[];
+  revealedAt?: string;
   isOpened: boolean;
   createdById: string;
   createdAt: string;
   photos?: CapsulePhoto[];
 };
 
-const emptyForm = { title: "", openDate: "", content: "", photos: [] as string[] };
+const emptyForm = {
+  title: "",
+  openDate: "",
+  content: "",
+  voiceUrl: "",
+  openMode: "single" as "single" | "together",
+  photos: [] as string[],
+};
 
 export default function TimeCapsule() {
   const [open, setOpen] = useState(false);
@@ -49,6 +62,8 @@ export default function TimeCapsule() {
   const [photoKeys, setPhotoKeys] = useState<string[]>([]);
   const [photosDirty, setPhotosDirty] = useState(false);
   const [working, setWorking] = useState(false);
+  const [sealed, setSealed] = useState(false);
+  const [openingId, setOpeningId] = useState("");
   const [status, setStatus] = useTransientStatus();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,7 +82,14 @@ export default function TimeCapsule() {
     if (capsule) {
       const photos = (capsule.photos ?? []).flatMap((photo) => (photo.url ? [photo.url] : []));
       setEditingId(capsule.id);
-      setForm({ title: capsule.title, openDate: capsule.openDate, content: capsule.content, photos });
+      setForm({
+        title: capsule.title,
+        openDate: capsule.openDate,
+        content: capsule.content,
+        voiceUrl: capsule.voiceUrl ?? "",
+        openMode: capsule.openMode ?? "single",
+        photos,
+      });
     } else {
       setEditingId(null);
       setForm(emptyForm);
@@ -79,6 +101,7 @@ export default function TimeCapsule() {
     setOpen(false);
     setEditingId(null);
     setForm(emptyForm);
+    setSealed(false);
     setPhotoKeys([]);
     setPhotosDirty(false);
     setStatus("");
@@ -127,11 +150,15 @@ export default function TimeCapsule() {
       title: string;
       openDate: string;
       content: string;
+      voiceUrl?: string;
+      openMode: "single" | "together";
       photos?: ReturnType<typeof photoPayload>;
     } = {
       title: form.title.trim(),
       openDate: form.openDate,
       content: form.content.trim(),
+      voiceUrl: form.voiceUrl,
+      openMode: form.openMode,
     };
     if (!editingId || photosDirty) payload.photos = photoPayload(form.photos);
 
@@ -149,11 +176,19 @@ export default function TimeCapsule() {
           body: JSON.stringify(payload),
         });
       }
-      closeDialog();
+      if (!editingId) {
+        setSealed(true);
+        window.setTimeout(() => {
+          closeDialog();
+          setSealed(false);
+        }, 820);
+      } else {
+        closeDialog();
+      }
       void mutate();
-    } catch {
+    } catch (error) {
       await deleteUploaded(photoKeys);
-      setStatus("保存失败，请稍后再试。", { autoClear: true });
+      setStatus(error instanceof ApiError ? error.message : "保存失败，请稍后再试。", { autoClear: true });
     } finally {
       setWorking(false);
     }
@@ -167,10 +202,23 @@ export default function TimeCapsule() {
       await apiJson(`/api/v1/time-capsules/${id}`, { method: "DELETE" });
       void mutate();
       toast("时光胶囊已删除", "success");
-    } catch {
-      toast("删除失败，请稍后再试", "error");
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : "删除失败，请稍后再试", "error");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const openCapsule = async (id: string) => {
+    if (openingId) return;
+    setOpeningId(id);
+    try {
+      await apiJson(`/api/v1/time-capsules/${id}/open`, { method: "POST" });
+      void mutate();
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : "开启失败，请稍后再试", "error");
+    } finally {
+      setOpeningId("");
     }
   };
 
@@ -195,7 +243,7 @@ export default function TimeCapsule() {
         title={editingId ? "编辑时光胶囊" : "埋下时光胶囊"}
         closeOnOverlay={!working}
       >
-        <div className="space-y-3">
+        <div className="relative space-y-3 overflow-hidden">
           <Input
             placeholder="标题 *"
             value={form.title}
@@ -217,6 +265,30 @@ export default function TimeCapsule() {
             rows={5}
             required
           />
+          <VoiceRecorder
+            folder="time-capsules"
+            value={form.voiceUrl}
+            disabled={!isAdmin || working}
+            onChange={(voiceUrl) => setForm((current) => ({ ...current, voiceUrl }))}
+            onError={(message) => setStatus(message, { autoClear: true })}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            {(["single", "together"] as const).map((mode) => (
+              <button
+                key={mode}
+                className={`min-h-10 rounded-[7px] border px-3 text-sm font-semibold transition ${
+                  form.openMode === mode
+                    ? "border-bloom bg-sakura/50 text-bloom"
+                    : "border-dim bg-cream/72 text-ink/58 hover:border-sky"
+                }`}
+                type="button"
+                onClick={() => setForm((current) => ({ ...current, openMode: mode }))}
+                disabled={!isAdmin || working}
+              >
+                {mode === "single" ? "到期可打开" : "一起打开"}
+              </button>
+            ))}
+          </div>
           <input ref={fileInputRef} className="hidden" type="file" accept="image/*" multiple onChange={pickPhotos} disabled={!isAdmin || working} />
           <Button variant="secondary" className="w-full" onClick={() => fileInputRef.current?.click()} disabled={!isAdmin || working}>
             <ImagePlus className="h-4 w-4" />
@@ -235,6 +307,14 @@ export default function TimeCapsule() {
           <Button className="w-full" onClick={save} disabled={!isAdmin || working}>
             {working ? <Spinner size="sm" /> : editingId ? "保存" : "埋下胶囊"}
           </Button>
+          {sealed && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center overflow-hidden rounded-[8px] bg-bloom/8">
+              <div className="time-capsule-seal absolute inset-x-0 bottom-0 bg-bloom/88" />
+              <div className="relative z-10 rounded-[7px] border border-cream/70 bg-sakura px-4 py-2 text-sm font-semibold text-bloom shadow-lg">
+                已封存 · {form.openDate}
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -259,6 +339,8 @@ export default function TimeCapsule() {
           capsules.map((cap) => {
             const days = daysUntil(cap.openDate);
             const isLocked = days > 0;
+            const isReady = Boolean(session?.user?.id && cap.openedByUserIds?.includes(session.user.id));
+            const isTogetherWaiting = !isLocked && cap.openMode === "together" && !cap.isOpened && isReady;
             const canEdit = cap.createdById === session?.user?.id && isLocked; // 只有未开启时创建人可编辑
             const photos = (cap.photos ?? []).flatMap((photo) => (photo.url ? [photo.url] : []));
 
@@ -294,19 +376,35 @@ export default function TimeCapsule() {
                     <p className="text-2xl font-bold text-sky">{days}</p>
                     <p className="text-xs text-ink/60">天后开启</p>
                   </div>
+                ) : !cap.isOpened ? (
+                  <div className="rounded-[7px] border border-sakura/70 bg-sakura/18 p-3 text-center">
+                    <p className="text-sm font-semibold text-bloom">
+                      {isTogetherWaiting ? "已准备好，等 TA 一起打开" : cap.openMode === "together" ? "到期了，一起打开" : "到期了，可以打开"}
+                    </p>
+                    <Button
+                      className="mt-3 w-full"
+                      onClick={() => openCapsule(cap.id)}
+                      disabled={!isAdmin || openingId === cap.id}
+                    >
+                      {openingId === cap.id ? <Spinner size="sm" /> : cap.openMode === "together" ? isReady ? "再等等 TA" : "我准备好了" : "打开胶囊"}
+                    </Button>
+                  </div>
                 ) : (
-                  <div>
+                  <div className="time-capsule-reveal">
                     {photos.length > 0 && (
                       <div className="mb-2 grid grid-cols-3 gap-2">
                         {photos.map((photo, index) => (
-                          <div key={`${cap.id}-photo-${index}`} className="relative aspect-square overflow-hidden rounded-[6px] bg-mist/36">
+                          <div key={`${cap.id}-photo-${index}`} className="time-capsule-photo relative aspect-square overflow-hidden rounded-[6px] bg-mist/36">
                             <LocalPrivacyImg className="h-full w-full object-cover" src={photo} alt={`${cap.title} 照片 ${index + 1}`} />
                           </div>
                         ))}
                       </div>
                     )}
-                    <div className="rounded-[7px] border border-bloom/30 bg-sakura/18 p-3 text-sm mb-2">
+                    <div className="time-capsule-content rounded-[7px] border border-bloom/30 bg-sakura/18 p-3 text-sm mb-2">
                       <p className="whitespace-pre-wrap text-ink/80">{cap.content}</p>
+                      <div className="time-capsule-voice mt-2">
+                        <VoicePlayer src={cap.voiceUrl} label="胶囊语音" />
+                      </div>
                     </div>
                     <p className="text-xs text-leaf text-center">✓ 已打开</p>
                   </div>

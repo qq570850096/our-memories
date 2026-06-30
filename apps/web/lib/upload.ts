@@ -8,6 +8,13 @@ export type UploadedImage = {
   height: number;
 };
 
+export type UploadedAudio = {
+  url: string;
+  key: string;
+  mimeType: string;
+  durationMs?: number;
+};
+
 type PresignResponse = {
   key: string;
   uploadUrl: string;
@@ -22,6 +29,7 @@ type BackendUploadResponse = {
 const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.82;
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 压缩后硬上限，挡住超大文件
+const MAX_AUDIO_UPLOAD_BYTES = 12 * 1024 * 1024;
 
 const loadImageFile = (file: Blob) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -132,6 +140,45 @@ export async function uploadImage(file: File, folder: string): Promise<UploadedI
 /** 批量上传，保留顺序。 */
 export function uploadImages(files: File[], folder: string): Promise<UploadedImage[]> {
   return Promise.all(files.map((file) => uploadImage(file, folder)));
+}
+
+export async function uploadAudio(blob: Blob, folder: string, durationMs?: number): Promise<UploadedAudio> {
+  const contentType = blob.type || "audio/webm";
+  if (!contentType.startsWith("audio/")) {
+    throw new Error("请选择音频文件");
+  }
+  if (blob.size > MAX_AUDIO_UPLOAD_BYTES) {
+    throw new Error("语音太大，请控制在 60 秒内");
+  }
+
+  try {
+    const presign = await apiJson<PresignResponse>("/api/v1/upload/presign", {
+      method: "POST",
+      body: JSON.stringify({ folder, contentType }),
+    });
+
+    const put = await fetch(presign.uploadUrl, {
+      method: "PUT",
+      body: blob,
+      headers: { "Content-Type": contentType },
+    });
+    if (!put.ok) throw new Error(`OSS upload failed (${put.status})`);
+
+    return { url: presign.publicUrl, key: presign.key, mimeType: contentType, durationMs };
+  } catch (error) {
+    console.warn("Direct audio upload failed.", error);
+    try {
+      const dataUrl = await blobToDataURL(blob);
+      const fallback = await apiJson<BackendUploadResponse>("/api/v1/upload", {
+        method: "POST",
+        body: JSON.stringify({ folder, dataUrl }),
+      });
+      return { url: fallback.url, key: fallback.key, mimeType: contentType, durationMs };
+    } catch (fallbackError) {
+      console.warn("Backend audio fallback failed.", fallbackError);
+      throw fallbackError instanceof Error ? fallbackError : new Error("语音上传失败，请稍后再试");
+    }
+  }
 }
 
 /** 保存失败时回滚：删除已上传或本地兜底的对象。 */

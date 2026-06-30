@@ -5,6 +5,20 @@ import { cityFallbackSprite, type City } from "@/data/cities";
 import { getMarkerLayout } from "./shared";
 import { LandmarkSprite } from "./LandmarkSprite";
 
+function MemoryBadge({ count, compact = false }: Readonly<{ count: number; compact?: boolean }>) {
+  return (
+    <span
+      className={`pointer-events-none absolute z-10 grid place-items-center rounded-full border border-cream bg-[linear-gradient(145deg,var(--color-sunshine),var(--color-sakura)_52%,var(--color-bloom))] font-bold leading-none text-rose-ink shadow-[0_5px_14px_rgba(232,184,194,0.42)] ring-1 ring-bloom/18 ${
+        compact ? "-right-2 -top-2 h-6 min-w-6 px-1 text-[10px]" : "-right-3 -top-3 h-8 min-w-8 px-1.5 text-xs"
+      }`}
+    >
+      <span className="absolute inset-[3px] rounded-full border border-cream/58" />
+      <span className="absolute -bottom-1 left-1/2 h-2 w-3 -translate-x-1/2 rotate-45 rounded-[2px] bg-bloom/88" />
+      <span className="relative">{count}</span>
+    </span>
+  );
+}
+
 export function CityMarker({
   city,
   lit,
@@ -35,11 +49,7 @@ export function CityMarker({
             height: layout.iconSize,
           }}
         >
-          {showBadge && (
-            <span className="absolute -right-1.5 -top-1.5 grid min-h-[16px] min-w-[16px] place-items-center rounded-full border border-cream bg-bloom px-1 text-[9px] font-bold leading-none text-cream shadow-[0_2px_6px_rgba(232,184,194,0.55)]">
-              {memoryCount}
-            </span>
-          )}
+          {showBadge && <MemoryBadge count={memoryCount} compact />}
         </motion.span>
         <span
           className={`absolute flex items-center gap-1.5 whitespace-nowrap rounded-full bg-cream/92 px-3 py-1.5 text-xs font-semibold shadow-[0_8px_18px_rgba(90,102,112,0.10)] backdrop-blur transition duration-200 ${
@@ -72,6 +82,7 @@ export function CityMarker({
         }}
       >
         <LandmarkSprite city={city} lit={lit} />
+        {showBadge && <MemoryBadge count={memoryCount} compact={!selected} />}
       </span>
       <span
         className={`absolute flex items-center whitespace-nowrap rounded-full bg-cream/88 font-semibold shadow-[0_8px_18px_rgba(90,102,112,0.10)] backdrop-blur transition duration-200 ${
@@ -98,11 +109,6 @@ export function CityMarker({
         {city.nameEn !== city.name && (
           <span className={lit ? "font-normal text-bloom/80" : "font-normal text-ink/42"}>
             {city.nameEn}
-          </span>
-        )}
-        {showBadge && (
-          <span className="ml-0.5 grid min-h-[16px] min-w-[16px] place-items-center rounded-full border border-cream bg-bloom px-1 text-[9px] font-bold leading-none text-cream shadow-[0_2px_6px_rgba(232,184,194,0.55)]">
-            {memoryCount}
           </span>
         )}
       </span>

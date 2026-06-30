@@ -113,14 +113,98 @@ export function useProvinceMapData({ provinceId, isAdmin }: UseProvinceMapDataOp
     [publishMemoryMutation],
   );
 
+  const showPendingMemory = useCallback(
+    (cityId: string, memory: Memory) => {
+      const previousStore = cityMemoryStoreRef.current;
+      const previousLocalStore = localMemoriesRef.current;
+      const tempId = `pending-${cityId}-${Date.now()}`;
+      const pendingMemory: Memory = {
+        ...memory,
+        id: tempId,
+        pending: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const nextCityMemories = [pendingMemory, ...(localMemoriesRef.current[cityId] ?? [])];
+      const optimisticStore = { ...localMemoriesRef.current, [cityId]: nextCityMemories };
+
+      commitMemoryStore(optimisticStore, cityId);
+
+      return () => {
+        cityMemoryStoreRef.current = previousStore;
+        setCityMemoryStore(previousStore);
+        localMemoriesRef.current = previousLocalStore;
+        publishMemoryMutation(previousLocalStore, cityId);
+      };
+    },
+    [commitMemoryStore, publishMemoryMutation],
+  );
+
+  const optimisticCreateMemory = useCallback(
+    async (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[], rollbackPending?: () => void) => {
+      const rollback = rollbackPending ?? showPendingMemory(cityId, memory);
+
+      try {
+        const data = await createMemory(memory, photos);
+        commitMemoryStore(data.memories, cityId);
+      } catch (error) {
+        rollback();
+        throw error;
+      }
+    },
+    [commitMemoryStore, showPendingMemory],
+  );
+
+  const optimisticUpdateMemory = useCallback(
+    async (cityId: string, memoryId: string, patch: MemoryPatchPayload) => {
+      const previousStore = cityMemoryStoreRef.current;
+      const previousLocalStore = localMemoriesRef.current;
+      const currentCityMemories = localMemoriesRef.current[cityId] ?? [];
+      const nextCityMemories = currentCityMemories.map((item) =>
+        item.id === memoryId
+          ? {
+              ...item,
+              ...patch,
+              image: patch.image ?? patch.coverImage ?? item.image,
+              photos: patch.photos?.map((photo) => photo.url).filter(Boolean) ?? item.photos,
+              pending: true,
+              updatedAt: new Date().toISOString(),
+            }
+          : item,
+      );
+      const optimisticStore = { ...localMemoriesRef.current, [cityId]: nextCityMemories };
+
+      commitMemoryStore(optimisticStore, cityId);
+
+      try {
+        const data = await updateMemory(memoryId, patch);
+        commitMemoryStore(data.memories, cityId);
+      } catch (error) {
+        cityMemoryStoreRef.current = previousStore;
+        setCityMemoryStore(previousStore);
+        localMemoriesRef.current = previousLocalStore;
+        publishMemoryMutation(previousLocalStore, cityId);
+        throw error;
+      }
+    },
+    [commitMemoryStore, publishMemoryMutation],
+  );
+
   const saveMemory = useCallback(
-    async (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[]) => {
+    async (cityId: string, memory: Memory, photos?: MemoryPhotoPayload[], rollbackPending?: () => void) => {
       if (!isAdmin) throw new Error("Admin mode required");
 
-      const data = await createMemory(memory, photos);
-      commitMemoryStore(data.memories, cityId);
+      await optimisticCreateMemory(cityId, memory, photos, rollbackPending);
     },
-    [commitMemoryStore, isAdmin],
+    [isAdmin, optimisticCreateMemory],
+  );
+
+  const beginSaveMemory = useCallback(
+    (cityId: string, memory: Memory) => {
+      if (!isAdmin) throw new Error("Admin mode required");
+      return showPendingMemory(cityId, memory);
+    },
+    [isAdmin, showPendingMemory],
   );
 
   const saveMemoryCover = useCallback(
@@ -137,10 +221,9 @@ export function useProvinceMapData({ provinceId, isAdmin }: UseProvinceMapDataOp
     async (cityId: string, memoryId: string, memory: MemoryPatchPayload) => {
       if (!isAdmin) throw new Error("Admin mode required");
 
-      const data = await updateMemory(memoryId, memory);
-      commitMemoryStore(data.memories, cityId);
+      await optimisticUpdateMemory(cityId, memoryId, memory);
     },
-    [commitMemoryStore, isAdmin],
+    [isAdmin, optimisticUpdateMemory],
   );
 
   const deleteMemoryRecord = useCallback(
@@ -197,6 +280,7 @@ export function useProvinceMapData({ provinceId, isAdmin }: UseProvinceMapDataOp
     applyMemoryUpdate,
     refreshRemoteState,
     saveMemory,
+    beginSaveMemory,
     saveMemoryCover,
     updateMemoryRecord,
     deleteMemoryRecord,

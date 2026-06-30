@@ -14,6 +14,9 @@ type CreateAnniversaryCardRequest struct {
 	Title        string       `json:"title" binding:"required"`
 	Date         string       `json:"date" binding:"required"`
 	Note         string       `json:"note"`
+	VoiceURL     string       `json:"voiceUrl"`
+	BGMURL       string       `json:"bgmUrl"`
+	BGMPreset    string       `json:"bgmPreset"`
 	RepeatYearly bool         `json:"repeatYearly"`
 	Pinned       bool         `json:"pinned"`
 	Photos       []PhotoInput `json:"photos"`
@@ -23,16 +26,25 @@ type UpdateAnniversaryCardRequest struct {
 	Title        string        `json:"title"`
 	Date         string        `json:"date"`
 	Note         string        `json:"note"`
+	VoiceURL     string        `json:"voiceUrl"`
+	BGMURL       string        `json:"bgmUrl"`
+	BGMPreset    string        `json:"bgmPreset"`
 	RepeatYearly bool          `json:"repeatYearly"`
 	Pinned       bool          `json:"pinned"`
 	Photos       *[]PhotoInput `json:"photos"`
 }
 
 type AnniversaryService struct {
-	repo      *repositories.AnniversaryRepository
-	upload    PhotoUploader
-	delete    PhotoDeleter
-	publisher events.Publisher
+	repo       *repositories.AnniversaryRepository
+	memoryRepo *repositories.MemoryRepository
+	upload     PhotoUploader
+	delete     PhotoDeleter
+	publisher  events.Publisher
+}
+
+type AnniversaryReplayResponse struct {
+	Card     models.AnniversaryCard `json:"card"`
+	Memories []models.Memory        `json:"memories"`
 }
 
 func NewAnniversaryService(
@@ -51,6 +63,10 @@ func NewAnniversaryService(
 		delete:    delete,
 		publisher: events.PublisherOrNoop(eventPublisher),
 	}
+}
+
+func (s *AnniversaryService) SetMemoryRepository(repo *repositories.MemoryRepository) {
+	s.memoryRepo = repo
 }
 
 func (s *AnniversaryService) List(spaceID string) ([]models.AnniversaryCard, error) {
@@ -74,6 +90,38 @@ func (s *AnniversaryService) List(spaceID string) ([]models.AnniversaryCard, err
 	return cards, nil
 }
 
+func (s *AnniversaryService) Replay(spaceID string, userID string, cardID string) (AnniversaryReplayResponse, error) {
+	card, err := s.repo.ByID(spaceID, cardID)
+	if err != nil {
+		return AnniversaryReplayResponse{}, err
+	}
+	cardPhotos, err := s.repo.PhotosByCardIDs([]string{card.ID})
+	if err != nil {
+		return AnniversaryReplayResponse{}, err
+	}
+	card.Photos = cardPhotos[card.ID]
+
+	if s.memoryRepo == nil {
+		return AnniversaryReplayResponse{Card: card, Memories: []models.Memory{}}, nil
+	}
+	memories, err := s.memoryRepo.ListAroundMonthDay(spaceID, userID, card.Date, 3, 12)
+	if err != nil {
+		return AnniversaryReplayResponse{}, err
+	}
+	memoryIDs := make([]string, 0, len(memories))
+	for _, memory := range memories {
+		memoryIDs = append(memoryIDs, memory.ID)
+	}
+	photosByMemoryID, err := s.memoryRepo.PhotosByMemoryIDs(memoryIDs)
+	if err != nil {
+		return AnniversaryReplayResponse{}, err
+	}
+	for i := range memories {
+		memories[i].Photos = photosByMemoryID[memories[i].ID]
+	}
+	return AnniversaryReplayResponse{Card: card, Memories: memories}, nil
+}
+
 func (s *AnniversaryService) Create(spaceID string, userID string, req CreateAnniversaryCardRequest) (string, error) {
 	if err := s.upload(spaceID, "anniversaries", req.Photos); err != nil {
 		return "", err
@@ -86,6 +134,9 @@ func (s *AnniversaryService) Create(spaceID string, userID string, req CreateAnn
 		Title:        req.Title,
 		Date:         req.Date,
 		Note:         req.Note,
+		VoiceURL:     req.VoiceURL,
+		BGMURL:       req.BGMURL,
+		BGMPreset:    req.BGMPreset,
 		RepeatYearly: boolInt(req.RepeatYearly),
 		Pinned:       boolInt(req.Pinned),
 		CreatedByID:  userID,
@@ -127,6 +178,9 @@ func (s *AnniversaryService) Update(spaceID string, userID string, cardID string
 		"title":         req.Title,
 		"date":          req.Date,
 		"note":          req.Note,
+		"voice_url":     req.VoiceURL,
+		"bgm_url":       req.BGMURL,
+		"bgm_preset":    req.BGMPreset,
 		"repeat_yearly": boolInt(req.RepeatYearly),
 		"pinned":        boolInt(req.Pinned),
 	}, photos, replacePhotos); err != nil {

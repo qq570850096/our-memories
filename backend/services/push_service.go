@@ -85,6 +85,18 @@ func (s *PushService) SendTest(spaceID string, req TestPushRequest) error {
 	return s.pushToRegistrationIDs(registrationIDs, title, content)
 }
 
+func (s *PushService) SendToSpaceExcept(spaceID string, actorID string, title string, content string) error {
+	registrationIDs, err := s.repo.RegistrationIDsForSpaceExceptUser(spaceID, actorID)
+	if err != nil {
+		return err
+	}
+	if len(registrationIDs) == 0 {
+		return ErrNoPushDevices
+	}
+
+	return s.pushToRegistrationIDs(registrationIDs, title, content)
+}
+
 func (s *PushService) pushToRegistrationIDs(registrationIDs []string, title string, content string) error {
 	cfg := config.Get()
 	if cfg.JPushAppKey == "" || cfg.JPushMasterSecret == "" {

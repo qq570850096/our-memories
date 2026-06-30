@@ -8,11 +8,12 @@ import (
 )
 
 type photoInput struct {
-	Key      string `json:"key"`
-	URL      string `json:"url"`
-	MimeType string `json:"mimeType"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	Key       string `json:"key"`
+	URL       string `json:"url"`
+	MimeType  string `json:"mimeType"`
+	MediaType string `json:"mediaType"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
 }
 
 func uploadDataURL(spaceID, folder, value string) (string, error) {

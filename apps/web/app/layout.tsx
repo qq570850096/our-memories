@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { ApiBaseScript } from "@/app/api-base-script";
 import { ApiCacheProvider } from "@/lib/apiCache";
 import { AuthProvider } from "@/lib/authContext";
-import { PullToRefresh } from "@/components/PullToRefresh";
-import { PushRegistration } from "@/components/PushRegistration";
+import { AuthenticatedRuntime } from "@/components/AuthenticatedRuntime";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -27,8 +26,7 @@ export default function RootLayout({
         <ApiCacheProvider>
           <AuthProvider>
             <ToastProvider>
-              <PullToRefresh />
-              <PushRegistration />
+              <AuthenticatedRuntime />
               {children}
             </ToastProvider>
           </AuthProvider>

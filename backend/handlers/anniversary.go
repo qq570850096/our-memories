@@ -31,6 +31,19 @@ func GetAnniversaryCards(c *gin.Context) {
 	utils.Success(c, gin.H{"anniversaryCards": cards})
 }
 
+func GetAnniversaryReplay(c *gin.Context) {
+	spaceID := c.GetString("spaceID")
+	userID := c.GetString("userID")
+	cardID := c.Param("id")
+
+	replay, err := anniversaryService().Replay(spaceID, userID, cardID)
+	if err != nil {
+		writeAnniversaryServiceError(c, err, "Failed to fetch anniversary replay")
+		return
+	}
+	utils.Success(c, replay)
+}
+
 func clearAnniversaryCardsCache(spaceID string) {
 	cache.ClearAnniversarySpace(spaceID)
 }
@@ -86,11 +99,14 @@ func DeleteAnniversaryCard(c *gin.Context) {
 }
 
 func anniversaryService() *services.AnniversaryService {
-	return services.NewAnniversaryService(
+	service := services.NewAnniversaryService(
 		repositories.NewAnniversaryRepository(db.Gorm),
 		uploadServicePhotoInputs,
 		deleteServicePhotos,
+		domainPublisher,
 	)
+	service.SetMemoryRepository(repositories.NewMemoryRepository(db.Gorm))
+	return service
 }
 
 func writeAnniversaryServiceError(c *gin.Context, err error, fallback string) {

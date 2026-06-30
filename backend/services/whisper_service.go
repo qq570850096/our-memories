@@ -11,12 +11,14 @@ import (
 )
 
 type CreateWhisperRequest struct {
-	Title   string `json:"title" binding:"required"`
-	Content string `json:"content"`
+	Title    string `json:"title" binding:"required"`
+	Content  string `json:"content"`
+	VoiceURL string `json:"voiceUrl"`
 }
 
 type ReplyWhisperRequest struct {
-	Content string `json:"content" binding:"required"`
+	Content  string `json:"content"`
+	VoiceURL string `json:"voiceUrl"`
 }
 
 type WhisperService struct {
@@ -42,12 +44,13 @@ func (s *WhisperService) List(spaceID string) ([]models.Whisper, error) {
 func (s *WhisperService) Create(spaceID string, userID string, req CreateWhisperRequest) (string, error) {
 	whisperID := utils.NewID()
 	var firstReply *repositories.WhisperReplyRecord
-	if strings.TrimSpace(req.Content) != "" {
+	if strings.TrimSpace(req.Content) != "" || strings.TrimSpace(req.VoiceURL) != "" {
 		firstReply = &repositories.WhisperReplyRecord{
 			ID:        utils.NewID(),
 			WhisperID: whisperID,
 			UserID:    userID,
 			Content:   req.Content,
+			VoiceURL:  req.VoiceURL,
 		}
 	}
 
@@ -64,12 +67,16 @@ func (s *WhisperService) Create(spaceID string, userID string, req CreateWhisper
 }
 
 func (s *WhisperService) Reply(spaceID string, userID string, whisperID string, req ReplyWhisperRequest) (string, error) {
+	if strings.TrimSpace(req.Content) == "" && strings.TrimSpace(req.VoiceURL) == "" {
+		return "", ErrInvalidContent
+	}
 	replyID := utils.NewID()
 	err := s.repo.AddReply(spaceID, repositories.WhisperReplyRecord{
 		ID:        replyID,
 		WhisperID: whisperID,
 		UserID:    userID,
 		Content:   req.Content,
+		VoiceURL:  req.VoiceURL,
 	})
 	if err == nil {
 		s.publish(events.WhisperReplied, spaceID, userID, whisperID)

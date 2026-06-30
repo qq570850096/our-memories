@@ -19,6 +19,8 @@ type CreateTimeCapsuleRequest struct {
 	Title    string       `json:"title" binding:"required"`
 	OpenDate string       `json:"openDate" binding:"required"`
 	Content  string       `json:"content" binding:"required"`
+	VoiceURL string       `json:"voiceUrl"`
+	OpenMode string       `json:"openMode"`
 	Photos   []PhotoInput `json:"photos"`
 }
 
@@ -26,6 +28,8 @@ type UpdateTimeCapsuleRequest struct {
 	Title    string        `json:"title"`
 	OpenDate string        `json:"openDate"`
 	Content  string        `json:"content"`
+	VoiceURL string        `json:"voiceUrl"`
+	OpenMode string        `json:"openMode"`
 	Photos   *[]PhotoInput `json:"photos"`
 }
 
@@ -64,8 +68,9 @@ func (s *TimeCapsuleService) List(spaceID string, userID string) ([]models.TimeC
 	for i := range capsules {
 		unlocked := CanOpenTimeCapsule(capsules[i].OpenDate)
 		isCreator := capsules[i].CreatedByID == userID
-		if !unlocked && !isCreator {
+		if (!unlocked && !isCreator) || (unlocked && !capsules[i].IsOpened) {
 			capsules[i].Content = ""
+			capsules[i].VoiceURL = ""
 			capsules[i].Photos = []models.Photo{}
 			continue
 		}
@@ -103,6 +108,8 @@ func (s *TimeCapsuleService) Create(spaceID string, userID string, req CreateTim
 		Title:       req.Title,
 		OpenDate:    req.OpenDate,
 		Content:     req.Content,
+		VoiceURL:    req.VoiceURL,
+		OpenMode:    normalizeTimeCapsuleOpenMode(req.OpenMode),
 		CreatedByID: userID,
 	}, timeCapsulePhotoRecords(capsuleID, req.Photos)); err != nil {
 		return "", err
@@ -142,6 +149,8 @@ func (s *TimeCapsuleService) Update(spaceID string, userID string, capsuleID str
 		"title":     req.Title,
 		"open_date": req.OpenDate,
 		"content":   req.Content,
+		"voice_url": req.VoiceURL,
+		"open_mode": normalizeTimeCapsuleOpenMode(req.OpenMode),
 	}, photos, replacePhotos); err != nil {
 		return err
 	}
@@ -158,7 +167,7 @@ func (s *TimeCapsuleService) Update(spaceID string, userID string, capsuleID str
 	return nil
 }
 
-func (s *TimeCapsuleService) Open(spaceID string, capsuleID string) error {
+func (s *TimeCapsuleService) Open(spaceID string, userID string, capsuleID string) error {
 	openDate, err := s.repo.OpenDate(capsuleID, spaceID)
 	if err != nil {
 		return err
@@ -166,11 +175,16 @@ func (s *TimeCapsuleService) Open(spaceID string, capsuleID string) error {
 	if !CanOpenTimeCapsule(openDate) {
 		return ErrTimeCapsuleLocked
 	}
-	if err := s.repo.MarkOpened(capsuleID, spaceID); err != nil {
+	capsule, err := s.repo.MarkOpened(capsuleID, spaceID, userID)
+	if err != nil {
 		return err
 	}
 
-	s.publish(events.TimeCapsuleOpened, spaceID, "", capsuleID)
+	if capsule.IsOpened {
+		s.publish(events.TimeCapsuleOpened, spaceID, userID, capsuleID)
+	} else {
+		s.publish(events.TimeCapsuleUpdated, spaceID, userID, capsuleID)
+	}
 	cache.ClearTimeCapsuleSpace(spaceID)
 	return nil
 }
@@ -245,17 +259,28 @@ func (s *TimeCapsuleService) deleteRemovedPhotos(spaceID string, oldPhotos []Sto
 }
 
 func CanOpenTimeCapsule(openDate string) bool {
+	return canOpenTimeCapsuleAt(openDate, time.Now())
+}
+
+func canOpenTimeCapsuleAt(openDate string, now time.Time) bool {
 	t, err := time.Parse("2006-01-02", openDate)
 	if err != nil {
 		t, err = time.Parse(time.RFC3339, openDate)
 		if err != nil {
 			return false
 		}
+		now = now.UTC()
 	}
-	now := time.Now().UTC()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	openDay := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	openDay := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, today.Location())
 	return !today.Before(openDay)
+}
+
+func normalizeTimeCapsuleOpenMode(value string) string {
+	if value == "together" {
+		return "together"
+	}
+	return "single"
 }
 
 func timeCapsulePhotoRecords(capsuleID string, photos []PhotoInput) []repositories.TimeCapsulePhotoRecord {

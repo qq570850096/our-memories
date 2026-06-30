@@ -61,8 +61,9 @@ func CreateTimeCapsule(c *gin.Context) {
 func OpenTimeCapsule(c *gin.Context) {
 	id := c.Param("id")
 	spaceID := c.GetString("spaceID")
+	userID := c.GetString("userID")
 
-	if err := timeCapsuleService().Open(spaceID, id); err != nil {
+	if err := timeCapsuleService().Open(spaceID, userID, id); err != nil {
 		writeTimeCapsuleServiceError(c, err, "Failed to open time capsule")
 		return
 	}
@@ -107,6 +108,7 @@ func timeCapsuleService() *services.TimeCapsuleService {
 		repositories.NewTimeCapsuleRepository(db.Gorm),
 		uploadServicePhotoInputs,
 		deleteServicePhotos,
+		domainPublisher,
 	)
 }
 

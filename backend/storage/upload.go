@@ -17,6 +17,7 @@ var allowedFolders = map[string]bool{
 	"memories":      true,
 	"anniversaries": true,
 	"time-capsules": true,
+	"whispers":      true,
 	"settings":      true,
 	"city-assets":   true,
 	"login-photos":  true,
@@ -24,10 +25,17 @@ var allowedFolders = map[string]bool{
 }
 
 var extByContentType = map[string]string{
-	"image/jpeg": ".jpg",
-	"image/jpg":  ".jpg",
-	"image/png":  ".png",
-	"image/webp": ".webp",
+	"image/jpeg":  ".jpg",
+	"image/jpg":   ".jpg",
+	"image/png":   ".png",
+	"image/webp":  ".webp",
+	"audio/mpeg":  ".mp3",
+	"audio/mp3":   ".mp3",
+	"audio/mp4":   ".m4a",
+	"audio/aac":   ".aac",
+	"audio/webm":  ".webm",
+	"audio/wav":   ".wav",
+	"audio/x-wav": ".wav",
 }
 
 // PresignPut signs a 15-minute PUT URL and returns key, upload URL, and public URL.
@@ -58,7 +66,7 @@ func (s *S3Storage) PresignPut(spaceID, folder, contentType string) (key, upload
 
 // UploadImageWithKey handles server-side relay upload and local fallback.
 func (s *S3Storage) UploadImageWithKey(spaceID, folder, dataURL string) (string, string, error) {
-	if !strings.HasPrefix(dataURL, "data:image/") {
+	if !strings.HasPrefix(dataURL, "data:image/") && !strings.HasPrefix(dataURL, "data:audio/") {
 		if key := s.KeyFromURL(dataURL); key != "" {
 			return dataURL, key, nil
 		}

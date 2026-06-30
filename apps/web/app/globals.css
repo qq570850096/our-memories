@@ -89,6 +89,35 @@ button {
   cursor: pointer;
 }
 
+@keyframes login-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-8px);
+  }
+  40% {
+    transform: translateX(8px);
+  }
+  60% {
+    transform: translateX(-6px);
+  }
+  80% {
+    transform: translateX(6px);
+  }
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .pixelated {
   image-rendering: crisp-edges;
   image-rendering: pixelated;
@@ -882,4 +911,80 @@ button {
   box-shadow:
     0 3px 10px color-mix(in srgb, var(--color-ink) 14%, transparent),
     0 0 0 3px color-mix(in srgb, var(--color-sakura) 72%, transparent);
+}
+
+@keyframes time-capsule-seal-rise {
+  from {
+    height: 0%;
+  }
+  to {
+    height: 100%;
+  }
+}
+
+@keyframes time-capsule-photo-reveal {
+  from {
+    filter: blur(20px);
+    opacity: 0.38;
+    transform: scale(1.035);
+  }
+  to {
+    filter: blur(0);
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes time-capsule-content-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes anniversary-replay-enter {
+  from {
+    opacity: 0.72;
+    transform: scale(1.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.time-capsule-seal {
+  animation: time-capsule-seal-rise 0.8s ease-out forwards;
+}
+
+.time-capsule-photo {
+  animation: time-capsule-photo-reveal 1.5s ease-out both;
+}
+
+.time-capsule-content {
+  animation: time-capsule-content-reveal 0.5s ease-out 0.55s both;
+}
+
+.time-capsule-voice {
+  animation: time-capsule-content-reveal 0.45s ease-out 1.05s both;
+}
+
+.anniversary-replay-enter {
+  animation: anniversary-replay-enter 2s ease-out both;
+  transform-origin: center top;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .time-capsule-seal,
+  .time-capsule-photo,
+  .time-capsule-content,
+  .time-capsule-voice,
+  .anniversary-replay-enter {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
 }

@@ -5,8 +5,8 @@ type Space struct {
 	SpaceCode        string `json:"spaceCode"`
 	PasswordHash     string `json:"-"`
 	Name             string `json:"name"`
-	Status           string `json:"status"`           // 'active' | 'suspended' | 'deleted'
-	Tier             string `json:"tier"`             // 'free' | 'lifetime'
+	Status           string `json:"status"` // 'active' | 'suspended' | 'deleted'
+	Tier             string `json:"tier"`   // 'free' | 'lifetime'
 	PurchasedAt      string `json:"purchasedAt,omitempty"`
 	StorageUsedBytes int64  `json:"storageUsedBytes"`
 	CreatedAt        string `json:"createdAt"`
@@ -19,7 +19,7 @@ type User struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	Avatar      string `json:"avatar,omitempty"`
-	Role        string `json:"role"`      // 'owner' | 'member'
+	Role        string `json:"role"` // 'owner' | 'member'
 	CreatedAt   string `json:"createdAt"`
 }
 
@@ -66,11 +66,14 @@ type Memory struct {
 	Visibility          string   `json:"visibility"`
 	PartnerNote         string   `json:"partnerNote,omitempty"`
 	PartnerNoteAuthorID string   `json:"partnerNoteAuthorId,omitempty"`
+	VoiceTextURL        string   `json:"voiceTextUrl,omitempty"`
+	PartnerVoiceURL     string   `json:"partnerVoiceUrl,omitempty"`
 	PlaceName           string   `json:"placeName,omitempty"`
 	CoverPhotoID        string   `json:"coverPhotoId,omitempty"`
 	CreatedByID         string   `json:"createdById,omitempty"`
 	CreatedAt           string   `json:"createdAt"`
 	UpdatedAt           string   `json:"updatedAt"`
+	DeletedAt           string   `json:"deletedAt,omitempty"`
 	Photos              []Photo  `json:"photos,omitempty"`
 }
 
@@ -80,6 +83,7 @@ type Photo struct {
 	Key       string `json:"key"`
 	URL       string `json:"url"`
 	MimeType  string `json:"mimeType,omitempty"`
+	MediaType string `json:"mediaType,omitempty"`
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
 	SortOrder int    `json:"sortOrder"`
@@ -92,6 +96,9 @@ type AnniversaryCard struct {
 	Title        string  `json:"title"`
 	Date         string  `json:"date"`
 	Note         string  `json:"note"`
+	VoiceURL     string  `json:"voiceUrl,omitempty"`
+	BGMURL       string  `json:"bgmUrl,omitempty"`
+	BGMPreset    string  `json:"bgmPreset,omitempty"`
 	CoverPhotoID string  `json:"coverPhotoId,omitempty"`
 	RepeatYearly bool    `json:"repeatYearly"`
 	Pinned       bool    `json:"pinned"`
@@ -117,17 +124,45 @@ type WhisperReply struct {
 	WhisperID string `json:"whisperId"`
 	UserID    string `json:"userId"`
 	Content   string `json:"content"`
+	VoiceURL  string `json:"voiceUrl,omitempty"`
 	CreatedAt string `json:"createdAt"`
 }
 
 type TimeCapsule struct {
-	ID          string  `json:"id"`
-	SpaceID     string  `json:"spaceId"`
-	Title       string  `json:"title"`
-	OpenDate    string  `json:"openDate"`
-	Content     string  `json:"content"`
-	CreatedByID string  `json:"createdById"`
-	IsOpened    bool    `json:"isOpened"`
-	CreatedAt   string  `json:"createdAt"`
-	Photos      []Photo `json:"photos,omitempty"`
+	ID              string   `json:"id"`
+	SpaceID         string   `json:"spaceId"`
+	Title           string   `json:"title"`
+	OpenDate        string   `json:"openDate"`
+	Content         string   `json:"content"`
+	VoiceURL        string   `json:"voiceUrl,omitempty"`
+	OpenMode        string   `json:"openMode"`
+	OpenedByUserIDs []string `json:"openedByUserIds"`
+	RevealedAt      string   `json:"revealedAt,omitempty"`
+	CreatedByID     string   `json:"createdById"`
+	IsOpened        bool     `json:"isOpened"`
+	CreatedAt       string   `json:"createdAt"`
+	Photos          []Photo  `json:"photos,omitempty"`
+}
+
+type Notification struct {
+	ID         string `json:"id"`
+	SpaceID    string `json:"spaceId"`
+	UserID     string `json:"userId"`
+	Type       string `json:"type"`
+	TargetType string `json:"targetType,omitempty"`
+	TargetID   string `json:"targetId,omitempty"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	IsRead     bool   `json:"isRead"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+type RelationshipSignal struct {
+	ID           string `json:"id"`
+	SpaceID      string `json:"spaceId"`
+	SenderUserID string `json:"senderUserId"`
+	CityID       string `json:"cityId"`
+	Message      string `json:"message"`
+	CreatedAt    string `json:"createdAt"`
+	ExpiresAt    string `json:"expiresAt"`
 }

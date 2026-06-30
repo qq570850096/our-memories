@@ -69,3 +69,14 @@ func (r *PushRepository) RegistrationIDsForSpace(spaceID string) ([]string, erro
 		Pluck("registration_id", &ids).Error
 	return ids, err
 }
+
+func (r *PushRepository) RegistrationIDsForSpaceExceptUser(spaceID string, userID string) ([]string, error) {
+	var ids []string
+	query := r.db.Model(&PushDeviceRecord{}).
+		Where("space_id = ? AND enabled = 1", spaceID)
+	if userID != "" {
+		query = query.Where("user_id <> ?", userID)
+	}
+	err := query.Pluck("registration_id", &ids).Error
+	return ids, err
+}
