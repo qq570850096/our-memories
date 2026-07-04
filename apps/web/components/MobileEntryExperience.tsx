@@ -41,8 +41,8 @@ export default function MobileEntryExperience() {
   const [status, setStatus] = useState<"idle" | "checking" | "wrong" | "open">("idle");
 
   useEffect(() => {
-    if (session?.accessToken) router.replace("/map");
-  }, [router, session?.accessToken]);
+    if (session) router.replace("/map");
+  }, [router, session]);
 
   const submitCode = async (nextCode: string) => {
     if (nextCode.length < passcodeLength || status === "checking" || status === "open") return;
@@ -51,11 +51,11 @@ export default function MobileEntryExperience() {
       setStatus("checking");
       const res = await fetch(`${apiBaseUrl()}/api/v1/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spaceCode, password: nextCode, userId: "me" }),
       }).catch(() => null);
-      const data = (await res?.json().catch(() => null)) as { accessToken?: string } | null;
-      if (res?.ok && data?.accessToken) {
+      if (res?.ok) {
         setStep(2);
         setStatus("idle");
         return;

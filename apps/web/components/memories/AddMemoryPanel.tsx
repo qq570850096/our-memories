@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, Plus, Sparkles } from "lucide-react";
 import { cities } from "@/data/cities";
 import { provinces } from "@/data/provinces";
@@ -152,20 +152,16 @@ export function AddMemoryPanel({
   const canSave = canEdit && Boolean(selectedCity) && Boolean(normalizedDate) && Boolean(form.text.trim()) && !isSaving;
   const citiesInProvince = provinceGroups.get(selectedProvince) || [];
 
-  const openPanel = () => {
-    const currentCity = cityOptions.find((city) => city.id === form.cityId);
-    if (currentCity) {
-      setSelectedProvince(currentCity.provinceId);
-    }
-    resetForm();
-    setOpen(true);
-  };
-
-  useEffect(() => {
-    if (!canEdit || window.location.search !== "?add=1") return;
-    openPanel();
-    window.history.replaceState(null, "", "/memories");
-  }, [canEdit]);
+  const resetForm = useCallback(() => {
+    setForm({
+      ...defaultAddMemoryForm(),
+      cityId: selectedCity?.id ?? cityOptions[0]?.id ?? "",
+    });
+    setPhotos([]);
+    setError("");
+    setPolishSuggestion("");
+    setPolishError("");
+  }, [cityOptions, selectedCity?.id]);
 
   const handleProvinceChange = (provinceId: string) => {
     setSelectedProvince(provinceId);
@@ -175,16 +171,24 @@ export function AddMemoryPanel({
     }
   };
 
-  const resetForm = () => {
-    setForm({
-      ...defaultAddMemoryForm(),
-      cityId: selectedCity?.id ?? cityOptions[0]?.id ?? "",
-    });
-    setPhotos([]);
-    setError("");
-    setPolishSuggestion("");
-    setPolishError("");
-  };
+  const openPanel = useCallback(() => {
+    const currentCity = cityOptions.find((city) => city.id === form.cityId);
+    if (currentCity) {
+      setSelectedProvince(currentCity.provinceId);
+    }
+    resetForm();
+    setOpen(true);
+  }, [cityOptions, form.cityId, resetForm]);
+
+  useEffect(() => {
+    if (!canEdit || window.location.search !== "?add=1") return;
+    const timer = window.setTimeout(() => {
+      openPanel();
+      window.history.replaceState(null, "", "/memories");
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [canEdit, openPanel]);
 
   const handlePolishMemory = async () => {
     if (!canEdit) {

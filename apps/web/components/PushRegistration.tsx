@@ -8,9 +8,9 @@ export function PushRegistration() {
   const { session } = useAuth();
 
   useEffect(() => {
-    if (!session?.accessToken) return;
+    if (!session) return;
     registerCurrentDeviceForPush().catch(() => null);
-  }, [session?.accessToken]);
+  }, [session]);
 
   return null;
 }

@@ -20,7 +20,7 @@ const RealtimeBridge = dynamic(() =>
 export function AuthenticatedRuntime() {
   const { session } = useAuth();
   const pathname = usePathname();
-  if (!session?.accessToken) return null;
+  if (!session) return null;
   return (
     <>
       <PullToRefresh />

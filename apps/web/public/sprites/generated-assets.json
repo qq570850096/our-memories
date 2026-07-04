@@ -118,36 +118,36 @@
     "sunny": {
       "src": "https://our-memories.oss-cn-shanghai.aliyuncs.com/static/generated-assets/map-couple-holding-sunny.webp",
       "width": 448,
-      "height": 176,
-      "frames": 4,
+      "height": 152,
+      "frames": 3,
       "fallbackSrc": "/sprites/characters/generated/map-couple-holding-sunny.webp"
     },
     "cloudy": {
       "src": "https://our-memories.oss-cn-shanghai.aliyuncs.com/static/generated-assets/map-couple-holding-cloudy.webp",
-      "width": 448,
+      "width": 356,
       "height": 176,
-      "frames": 4,
+      "frames": 3,
       "fallbackSrc": "/sprites/characters/generated/map-couple-holding-cloudy.webp"
     },
     "rain": {
       "src": "https://our-memories.oss-cn-shanghai.aliyuncs.com/static/generated-assets/map-couple-holding-rain.webp",
       "width": 448,
-      "height": 176,
-      "frames": 4,
+      "height": 153,
+      "frames": 3,
       "fallbackSrc": "/sprites/characters/generated/map-couple-holding-rain.webp"
     },
     "snow": {
       "src": "https://our-memories.oss-cn-shanghai.aliyuncs.com/static/generated-assets/map-couple-holding-snow.webp",
       "width": 448,
-      "height": 176,
-      "frames": 4,
+      "height": 153,
+      "frames": 3,
       "fallbackSrc": "/sprites/characters/generated/map-couple-holding-snow.webp"
     },
     "wind": {
       "src": "https://our-memories.oss-cn-shanghai.aliyuncs.com/static/generated-assets/map-couple-holding-wind.webp",
       "width": 448,
-      "height": 176,
-      "frames": 4,
+      "height": 146,
+      "frames": 3,
       "fallbackSrc": "/sprites/characters/generated/map-couple-holding-wind.webp"
     }
   },

@@ -1,5 +1,9 @@
 FROM golang:1.22-alpine AS builder
 
+# API-only image for backend debugging. Production builds should use the
+# repository-root Dockerfile so the exported web/admin apps are bundled into
+# /app/public.
+
 WORKDIR /src
 
 RUN apk add --no-cache ca-certificates tzdata
@@ -25,7 +29,7 @@ COPY --from=builder /out/our-memories-api ./our-memories-api
 ENV PORT=8080 \
   DATABASE_PATH=/app/data/ourMemories.db \
   PUBLIC_DIR=/app/public \
-  AUTO_SEED=true
+  AUTO_SEED=false
 
 USER app
 

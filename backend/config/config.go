@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -45,11 +46,11 @@ func Load() {
 		JWTSecret:         getEnv("JWT_SECRET", "change-me-at-least-24-characters"),
 		AllowedOrigins:    strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:3002"), ","),
 		DefaultSpaceCode:  getEnv("DEFAULT_SPACE_CODE", "our-space-2026"),
-		DefaultPassword:   getEnv("DEFAULT_PASSWORD", "1234"),
-		AdminUsername:     getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:     getEnv("ADMIN_PASSWORD", "admin123456"),
+		DefaultPassword:   getEnv("DEFAULT_PASSWORD", ""),
+		AdminUsername:     getEnv("ADMIN_USERNAME", ""),
+		AdminPassword:     getEnv("ADMIN_PASSWORD", ""),
 		AdminDisplayName:  getEnv("ADMIN_DISPLAY_NAME", "Admin User"),
-		AutoSeed:          getEnv("AUTO_SEED", "true") == "true",
+		AutoSeed:          getEnv("AUTO_SEED", "false") == "true",
 		S3Endpoint:        getEnv("S3_ENDPOINT", ""),
 		S3Region:          getEnv("S3_REGION", "us-east-1"),
 		S3AccessKeyID:     getEnv("S3_ACCESS_KEY_ID", ""),
@@ -63,13 +64,40 @@ func Load() {
 		JPushMasterSecret: getEnv("JPUSH_MASTER_SECRET", ""),
 	}
 
+	if err := Validate(cfg); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func Validate(cfg *Config) error {
 	if len(cfg.JWTSecret) < 24 {
-		log.Fatal("JWT_SECRET must be at least 24 characters")
+		return fmt.Errorf("JWT_SECRET must be at least 24 characters")
 	}
 
 	if cfg.JWTSecret == "change-me-at-least-24-characters" {
-		log.Fatal("JWT_SECRET must be changed from default value for security")
+		return fmt.Errorf("JWT_SECRET must be changed from default value for security")
 	}
+
+	for _, origin := range cfg.AllowedOrigins {
+		if strings.TrimSpace(origin) == "*" {
+			return fmt.Errorf("ALLOWED_ORIGINS must not contain * when credentialed cookies are enabled")
+		}
+	}
+
+	if cfg.AutoSeed && (len(cfg.DefaultPassword) < 8 || cfg.DefaultPassword == "1234") {
+		return fmt.Errorf("DEFAULT_PASSWORD must be at least 8 characters when AUTO_SEED=true")
+	}
+
+	if cfg.AdminUsername != "" || cfg.AdminPassword != "" {
+		if cfg.AdminUsername == "" || cfg.AdminPassword == "" {
+			return fmt.Errorf("ADMIN_USERNAME and ADMIN_PASSWORD must be set together")
+		}
+		if len(cfg.AdminPassword) < 12 || cfg.AdminPassword == "admin123456" {
+			return fmt.Errorf("ADMIN_PASSWORD must be at least 12 characters and changed from the example value")
+		}
+	}
+
+	return nil
 }
 
 func Get() *Config {

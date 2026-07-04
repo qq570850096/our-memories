@@ -81,13 +81,13 @@ JWT_SECRET=replace-with-a-long-random-secret
 ALLOWED_ORIGINS=http://your-server-ip:8080,http://your-server-ip,capacitor://localhost,http://localhost,https://localhost
 
 DEFAULT_SPACE_CODE=our-space-2026
-DEFAULT_PASSWORD=1234
+DEFAULT_PASSWORD=<your-strong-space-password>
 
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=replace-with-a-strong-admin-password
 ADMIN_DISPLAY_NAME=Admin User
 
-AUTO_SEED=true
+AUTO_SEED=false
 
 S3_ENDPOINT=
 S3_REGION=us-east-1
@@ -173,7 +173,7 @@ POST /api/v1/auth/login
 ```json
 {
   "spaceCode": "our-space-2026",
-  "password": "1234",
+  "password": "<your-strong-space-password>",
   "userId": "me"
 }
 ```

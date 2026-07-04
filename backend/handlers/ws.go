@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"our-memories-backend/events"
+	"our-memories-backend/middleware"
 	"our-memories-backend/utils"
 )
 
@@ -76,6 +77,9 @@ func claimsFromWebSocketRequest(c *gin.Context) (*utils.Claims, error) {
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		}
+	}
+	if token == "" {
+		token, _ = c.Cookie(middleware.AccessTokenCookieName)
 	}
 	return utils.VerifyToken(token)
 }

@@ -26,6 +26,19 @@ const (
 
 const defaultAvatarPromptTemplate = `Create one premium single-frame avatar sprite for a couple memory map.
 {reference}
+Subject: {gender}, full-body chibi human in a lively walking pose, original design, {prompt}.
+Pose: show the complete character mid-step with one foot forward, natural arm swing, balanced body, and readable full-body walking action. Keep the pose energetic but stable for a tiny map marker.
+Output format: one complete full-body character centered in a square canvas. If the prompt asks for two people or a couple, keep both complete full bodies together inside the same canvas with generous padding; do not split them into panels, do not place either person across a frame boundary, and do not crop heads, hands, feet, hair, clothing, or accessories. Do not create a sprite sheet, animation strip, multiple poses, panels, borders, or repeated frames.
+Pixel art requirements: crisp hand-placed pixel art, clear hard pixel edges, no blur, no anti-aliased soft brush look, no watercolor, no oil painting, no 3D render, no vector icon. Use clean 16-bit HD-2D JRPG sprite aesthetics with readable face, cute proportions, coherent human anatomy, strong silhouette, and polished tiny-map readability.
+Resolution guidance: draw the character as a compact sprite occupying about 70% of frame height with generous transparent padding. Make details simple enough to remain clear when displayed at 32-48 px tall.
+Background: transparent PNG if supported; otherwise perfectly flat solid #00ff00 chroma-key background. The background must be one uniform color with no shadow, gradient, floor, texture, or lighting variation. Do not use #00ff00 inside the character.
+Quality constraints: the character must clearly look like a cute human with natural proportions. No text, watermark, logo, cropped limbs, extra characters, animal features, monster features, distorted face, broken hands, squashed body, stretched body, messy pixels, low-resolution blur, compression artifacts, or mixed art styles.
+Negative prompt: {negative}`
+
+const defaultAvatarNegativePrompt = "sprite sheet, animation strip, multiple frames, multiple poses, split composition, separated panels, frame boundary slicing, cropped partner, cropped head, cropped hands, cropped feet, blurry, soft edges, anti-aliased painting, watercolor, oil painting, 3D render, vector icon, sticker, photorealistic, low quality, malformed human, squashed body, stretched body, monster, animal ears, extra limbs, broken hands, cropped body, text, watermark, logo, shadowed background, gradient background, rain overlay, weather effects"
+
+const legacyDefaultAvatarPromptTemplate = `Create one premium single-frame avatar sprite for a couple memory map.
+{reference}
 Subject: {gender}, full-body chibi human, original design, {prompt}.
 Output format: one complete full-body character centered in a square canvas. Do not create a sprite sheet, animation strip, multiple poses, panels, borders, or repeated frames.
 Pixel art requirements: crisp hand-placed pixel art, clear hard pixel edges, no blur, no anti-aliased soft brush look, no watercolor, no oil painting, no 3D render, no vector icon. Use clean 16-bit HD-2D JRPG sprite aesthetics with readable face, cute proportions, coherent human anatomy, strong silhouette, and polished tiny-map readability.
@@ -34,7 +47,7 @@ Background: transparent PNG if supported; otherwise perfectly flat solid #00ff00
 Quality constraints: the character must clearly look like a cute human with natural proportions. No text, watermark, logo, cropped limbs, extra characters, animal features, monster features, distorted face, broken hands, squashed body, stretched body, messy pixels, low-resolution blur, compression artifacts, or mixed art styles.
 Negative prompt: {negative}`
 
-const defaultAvatarNegativePrompt = "sprite sheet, animation strip, multiple frames, multiple poses, panel borders, blurry, soft edges, anti-aliased painting, watercolor, oil painting, 3D render, vector icon, sticker, photorealistic, low quality, malformed human, squashed body, stretched body, monster, animal ears, extra limbs, broken hands, cropped body, text, watermark, logo, shadowed background, gradient background, rain overlay, weather effects"
+const legacyDefaultAvatarNegativePrompt = "sprite sheet, animation strip, multiple frames, multiple poses, panel borders, blurry, soft edges, anti-aliased painting, watercolor, oil painting, 3D render, vector icon, sticker, photorealistic, low quality, malformed human, squashed body, stretched body, monster, animal ears, extra limbs, broken hands, cropped body, text, watermark, logo, shadowed background, gradient background, rain overlay, weather effects"
 
 type ImageGenerationNode struct {
 	ID        string `json:"id"`
@@ -284,6 +297,9 @@ func normalizePromptTemplate(value string) string {
 	if value == "" {
 		return defaultAvatarPromptTemplate
 	}
+	if value == legacyDefaultAvatarPromptTemplate {
+		return defaultAvatarPromptTemplate
+	}
 	if len([]rune(value)) > 3000 {
 		return string([]rune(value)[:3000])
 	}
@@ -293,6 +309,9 @@ func normalizePromptTemplate(value string) string {
 func normalizeNegativePrompt(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
+		return defaultAvatarNegativePrompt
+	}
+	if value == legacyDefaultAvatarNegativePrompt {
 		return defaultAvatarNegativePrompt
 	}
 	if len([]rune(value)) > 1200 {

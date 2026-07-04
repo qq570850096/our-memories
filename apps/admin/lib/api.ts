@@ -3,7 +3,7 @@ const ADMIN_BASE_PATH = "/admin";
 const adminUrl = (path: string) => `${ADMIN_BASE_PATH}${path.startsWith("/") ? path : `/${path}`}`;
 
 export interface AdminSession {
-  token: string;
+  token?: string;
   admin: {
     id: string;
     username: string;
@@ -12,13 +12,13 @@ export interface AdminSession {
 }
 
 const SESSION_KEY = "admin_session";
+const TOKEN_SESSION_KEY = "admin_session_token";
 
 function isAdminSession(value: unknown): value is AdminSession {
   if (!value || typeof value !== "object") return false;
   const session = value as Partial<AdminSession>;
   const admin = session.admin;
   return (
-    typeof session.token === "string" &&
     !!admin &&
     typeof admin.id === "string" &&
     typeof admin.username === "string" &&
@@ -32,7 +32,10 @@ export function getSession(): AdminSession | null {
   if (!stored) return null;
   try {
     const session = JSON.parse(stored);
-    if (isAdminSession(session)) return session;
+    if (isAdminSession(session)) {
+      const token = sessionStorage.getItem(TOKEN_SESSION_KEY) || undefined;
+      return { ...session, token };
+    }
     clearSession();
     return null;
   } catch {
@@ -42,11 +45,19 @@ export function getSession(): AdminSession | null {
 }
 
 export function setSession(session: AdminSession): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  if (session.token) {
+    sessionStorage.setItem(TOKEN_SESSION_KEY, session.token);
+  } else {
+    sessionStorage.removeItem(TOKEN_SESSION_KEY);
+  }
+  const publicSession = { ...session };
+  delete publicSession.token;
+  localStorage.setItem(SESSION_KEY, JSON.stringify(publicSession));
 }
 
 export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(TOKEN_SESSION_KEY);
 }
 
 async function apiFetch(path: string, options: RequestInit = {}) {
@@ -63,6 +74,7 @@ async function apiFetch(path: string, options: RequestInit = {}) {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: options.credentials ?? "include",
     headers,
   });
 
@@ -90,6 +102,7 @@ export async function login(username: string, password: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
+  await apiFetch("/api/v1/admin/logout", { method: "POST" }).catch(() => null);
   clearSession();
   window.location.href = adminUrl("/login");
 }

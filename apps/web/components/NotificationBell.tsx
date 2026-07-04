@@ -27,13 +27,13 @@ export function NotificationBell() {
   const { session } = useAuth();
   const [open, setOpen] = useState(false);
   const { data, mutate } = useApi<{ notifications: NotificationItem[] }>("/notifications", {
-    enabled: Boolean(session?.accessToken),
+    enabled: Boolean(session),
     refreshInterval: open ? 15000 : 0,
   });
   const notifications = useMemo(() => data?.notifications ?? [], [data?.notifications]);
 
   const unreadCount = useMemo(() => notifications.filter((item) => !item.isRead).length, [notifications]);
-  if (!session?.accessToken) return null;
+  if (!session) return null;
 
   const markRead = async (item: NotificationItem) => {
     if (!item.isRead) {

@@ -47,6 +47,12 @@ data/localMemories.private.json
 data/cityAssets.private.json
 data/loginPhotos.private.json
 data/*.backup-*
+backend/data/
+
+# local tool state and downloaded SDK bundles
+tmp/
+.kimchi/
+jpush-android-*.zip
 
 # archived generated/source assets not used by the app
 /archive/

@@ -119,6 +119,14 @@ const writeItems = (key: string, items: StoredItem[]) => {
   window.localStorage.setItem(key, JSON.stringify(items));
 };
 
+const createClientId = (prefix: string) => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Math.random().toString(36).slice(2)}`;
+};
+
 const normalizeItems = (value: unknown): StoredItem[] => {
   if (!Array.isArray(value)) return [];
 
@@ -343,7 +351,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
       } else {
         // 创建新项
         const item = {
-          id: `${config.kind}-${Date.now()}`,
+          id: createClientId(config.kind),
           title: title.trim(),
           date: date.trim(),
           note: note.trim(),
@@ -659,8 +667,17 @@ function CoupleDiaryPage() {
   useEffect(() => {
     if (!auxiliaryData) return;
     const serverItems = normalizeItems(auxiliaryData.items ?? []);
-    setItems(serverItems);
-    writeItems(configs.diary.storageKey, serverItems);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      setItems(serverItems);
+      writeItems(configs.diary.storageKey, serverItems);
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [auxiliaryData]);
 
   useEffect(() => {
@@ -745,8 +762,12 @@ function CoupleDiaryPage() {
     const diaryId = new URLSearchParams(window.location.search).get("diary");
     if (!diaryId) return;
     const item = items.find((candidate) => candidate.id === diaryId);
-    if (item) startEdit(item);
+    const timer = window.setTimeout(() => {
+      if (item) startEdit(item);
+    }, 0);
     window.history.replaceState(null, "", "/favorites");
+
+    return () => window.clearTimeout(timer);
   }, [editorOpen, items, setupOpen, startEdit]);
 
   const updateProvince = (provinceId: string) => {
@@ -794,7 +815,7 @@ function CoupleDiaryPage() {
       editingItem && previousPayload.body.trim() && previousPayload.body !== draft.body
         ? [
             {
-              id: `history-${Date.now()}`,
+              id: createClientId("history"),
               text: previousPayload.body,
               editedAt: new Date().toISOString(),
               editorName,
@@ -810,7 +831,7 @@ function CoupleDiaryPage() {
       history: nextHistory,
     };
     const item: StoredItem = {
-      id: editingId || `diary-${Date.now()}`,
+      id: editingId || createClientId("diary"),
       title: draft.title.trim(),
       date: draft.date,
       note: stringifyDiaryPayload(payload),

@@ -52,7 +52,7 @@ COPY --from=admin-builder /src/apps/admin/out ./public/admin
 ENV PORT=8080 \
   DATABASE_PATH=/app/data/ourMemories.db \
   PUBLIC_DIR=/app/public \
-  AUTO_SEED=true
+  AUTO_SEED=false
 
 USER app
 

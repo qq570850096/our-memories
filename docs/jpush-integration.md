@@ -40,6 +40,7 @@ PORT=8080
 DATABASE_PATH=./data/ourMemories.db
 JWT_SECRET=至少 24 个字符的本地开发密钥
 ALLOWED_ORIGINS=http://localhost:3002,http://localhost:3003
+DEFAULT_PASSWORD=至少 8 个字符的本地空间密码
 AUTO_SEED=true
 ```
 

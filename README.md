@@ -51,7 +51,7 @@ go run main.go
 
 ```bash
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123456
+ADMIN_PASSWORD=<your-strong-admin-password>
 ADMIN_DISPLAY_NAME=Admin User
 ```
 
@@ -62,7 +62,7 @@ ADMIN_DISPLAY_NAME=Admin User
 ```bash
 go run cmd/create_admin.go \
   -username=admin \
-  -password=admin123456 \
+  -password=<your-strong-admin-password> \
   -name="Admin User"
 ```
 

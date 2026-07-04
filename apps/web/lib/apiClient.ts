@@ -117,11 +117,12 @@ function makeHeaders(headers?: HeadersInit, auth = true, body?: BodyInit | null)
 
 export async function refreshAccessToken() {
   const session = readSession();
-  if (!session?.refreshToken) return false;
+  if (!session) return false;
   const response = await fetch(`${apiBaseUrl()}/api/v1/auth/refresh`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
+    body: session.refreshToken ? JSON.stringify({ refreshToken: session.refreshToken }) : "{}",
   }).catch(() => null);
   if (!response?.ok) return false;
   const data = (await response.json().catch(() => null)) as { accessToken?: string } | null;
@@ -136,6 +137,7 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
   const url = /^https?:\/\//.test(normalizedPath) ? normalizedPath : `${apiBaseUrl()}${normalizedPath}`;
   const response = await fetch(url, {
     ...init,
+    credentials: init.credentials ?? "include",
     headers: makeHeaders(init.headers, auth, init.body),
   }).catch(() => {
     throw new ApiError({
@@ -168,12 +170,13 @@ export async function login(spaceCode: string, password: string, userId = "me") 
   });
   if (!response.ok) return false;
   const session = (await response.json().catch(() => null)) as Parameters<typeof writeSession>[0] | null;
-  if (!session?.accessToken || !session.refreshToken) return false;
+  if (!session?.user || !session.space) return false;
   writeSession(session);
   return true;
 }
 
 export async function logout() {
+  await apiFetch("/api/v1/auth/logout", { method: "POST", auth: false }).catch(() => null);
   clearApiCache();
   clearSession();
 }

@@ -1,6 +1,6 @@
 export type StoredSession = {
-  accessToken: string;
-  refreshToken: string;
+  accessToken?: string;
+  refreshToken?: string;
   user?: {
     id: string;
     username: string;
@@ -18,6 +18,7 @@ export type StoredSession = {
 };
 
 export const sessionKey = "mapofus:session";
+const tokenSessionKey = "mapofus:session-tokens";
 export const authSessionUpdatedEvent = "mapofus:session-updated";
 export const sessionScopeUpdatedEvent = "mapofus:session-scope-updated";
 
@@ -31,14 +32,47 @@ function dispatchSessionUpdated(session: StoredSession | null) {
   window.dispatchEvent(new CustomEvent<StoredSession | null>(authSessionUpdatedEvent, { detail: session }));
 }
 
+function readTokenSession(): Pick<StoredSession, "accessToken" | "refreshToken"> {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(tokenSessionKey) ?? "null") as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const tokens = parsed as Partial<StoredSession>;
+    return {
+      accessToken: typeof tokens.accessToken === "string" ? tokens.accessToken : undefined,
+      refreshToken: typeof tokens.refreshToken === "string" ? tokens.refreshToken : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeTokenSession(session: StoredSession) {
+  const tokens = {
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+  };
+  if (tokens.accessToken || tokens.refreshToken) {
+    window.sessionStorage.setItem(tokenSessionKey, JSON.stringify(tokens));
+  } else {
+    window.sessionStorage.removeItem(tokenSessionKey);
+  }
+}
+
+function publicSession(session: StoredSession): StoredSession {
+  const publicFields = { ...session };
+  delete publicFields.accessToken;
+  delete publicFields.refreshToken;
+  return publicFields;
+}
+
 export function readSession(): StoredSession | null {
   if (typeof window === "undefined") return null;
   try {
     const parsed = JSON.parse(window.localStorage.getItem(sessionKey) ?? "null") as unknown;
     if (!parsed || typeof parsed !== "object") return null;
     const session = parsed as Partial<StoredSession>;
-    if (typeof session.accessToken !== "string" || typeof session.refreshToken !== "string") return null;
-    return session as StoredSession;
+    if (!session.user && !session.space) return null;
+    return { ...(session as StoredSession), ...readTokenSession() };
   } catch {
     return null;
   }
@@ -46,7 +80,8 @@ export function readSession(): StoredSession | null {
 
 export function writeSession(session: StoredSession) {
   const previousScope = sessionCacheScope();
-  window.localStorage.setItem(sessionKey, JSON.stringify(session));
+  writeTokenSession(session);
+  window.localStorage.setItem(sessionKey, JSON.stringify(publicSession(session)));
   if (session.membership?.role === "owner") {
     window.sessionStorage.setItem("mapofus:admin-unlocked", "true");
   } else {
@@ -68,6 +103,7 @@ export function clearSession() {
   if (typeof window === "undefined") return;
   const previousScope = sessionCacheScope();
   window.localStorage.removeItem(sessionKey);
+  window.sessionStorage.removeItem(tokenSessionKey);
   window.sessionStorage.removeItem("mapofus:admin-unlocked");
   window.dispatchEvent(new CustomEvent<boolean>("mapofus:admin-mode-updated", { detail: false }));
   dispatchSessionUpdated(null);

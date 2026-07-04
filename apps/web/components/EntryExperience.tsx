@@ -176,7 +176,7 @@ export default function EntryExperience() {
   const reverseX = useTransform(smoothX, [-0.5, 0.5], [12, -12]);
 
   useEffect(() => {
-    if (session?.accessToken) {
+    if (session) {
       router.push("/map");
       return;
     }
@@ -205,7 +205,7 @@ export default function EntryExperience() {
       window.removeEventListener(appSettingsUpdatedEvent, handleSettingsUpdate);
       window.removeEventListener(loginPhotosUpdatedEvent, handleLoginPhotosUpdate);
     };
-  }, [router, session?.accessToken]);
+  }, [router, session]);
 
   const loginStamps = useMemo<Stamp[]>(() => {
     return stamps.map((stamp) => ({
@@ -225,12 +225,12 @@ export default function EntryExperience() {
       setStatus("checking");
       const res = await fetch(`${apiBaseUrl()}/api/v1/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spaceCode, password: nextCode, userId: "me" }),
       }).catch(() => null);
-      const data = (await res?.json().catch(() => null)) as { accessToken?: string } | null;
 
-      if (res?.ok && data?.accessToken) {
+      if (res?.ok) {
         setStep(2);
         setStatus("idle");
       } else {
