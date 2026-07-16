@@ -101,6 +101,73 @@ curl -fsS http://127.0.0.1:18080/health
 
 从旧版升级时不要覆盖原 `.env`、不要执行 `docker compose down -v`，也不要先创建一个空 `data` 目录并把它挂到 `/app/data`。旧版默认使用逻辑卷 `api-data`，但实际卷名通常是 `<Compose 项目名>_api-data`；必须保留原部署目录和 Compose/面板项目名，或用 `docker compose -p <原项目名>` / `COMPOSE_PROJECT_NAME=<原项目名>` 显式指定原值，否则会挂载一个新的空卷。当前 Compose 在项目名不变且旧 `.env` 没有 `DATA_DIR` 时会继续使用原卷。升级后仍用原空间码、原 PIN/口令和原来的两个身份登录。完整检查、备份、原地恢复与命名卷迁移步骤见 [DEPLOYMENT.md](./DEPLOYMENT.md#从旧版管理员端版本升级)。
 
+## 环境变量说明
+
+Docker Compose 默认读取项目根目录的 `.env`。建议从 [.env.example](./.env.example) 复制，不要把包含真实密钥的 `.env` 提交到 GitHub。
+
+### 必填与首次初始化
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `JWT_SECRET` | 无可用默认值 | **始终必填**。JWT 签名密钥，至少 24 个字符；使用 `openssl rand -base64 32` 生成。部署后应保持不变，否则现有登录会失效。 |
+| `AUTO_SEED` | `true`（Compose） | 数据库为空时是否创建初始双人空间。首次部署设为 `true`，确认登录后建议改为 `false` 并重建容器。 |
+| `DEFAULT_PASSWORD` | 空 | `AUTO_SEED=true` 且数据库为空时必填，必须为 8–128 个字符，建议至少 12 个字符。它是两位用户进入初始空间的登录口令。 |
+| `DEFAULT_SPACE_CODE` | `our-space-2026` | 初始空间码，用于登录和区分空间；只在首次初始化空数据库时写入。 |
+| `DEFAULT_SPACE_NAME` | `我们的回忆` | 初始空间显示名称，只在首次初始化时写入。 |
+| `DEFAULT_USER_ME_NAME` | `我` | 第一位用户的显示名称，只在首次初始化时写入。 |
+| `DEFAULT_USER_TA_NAME` | `TA` | 第二位用户的显示名称，只在首次初始化时写入。 |
+
+`DEFAULT_*` 不会覆盖数据库中的已有内容。部署完成后要修改空间码、名称、用户名称或口令，请在应用设置中操作，而不是只修改 `.env`。
+
+### 容器与网络
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `OUR_MEMORIES_IMAGE` | 阿里云公开镜像的 `latest` | 要运行的镜像。生产环境建议固定为 `sha-<提交短哈希>` 标签，升级时再显式修改。 |
+| `APP_BIND_IP` | `127.0.0.1` | 宿主机监听地址。面板反向代理保持默认；只有裸 IP 直连时才改为 `0.0.0.0`，并配置防火墙。 |
+| `APP_PORT` | `18080` | 宿主机端口，容器内部固定为 `8080`。修改后同步更新反向代理和健康检查地址。 |
+| `DATA_DIR` | 示例文件为 `./data` | `/app/data` 对应的数据位置。面板部署推荐绝对路径；变量缺失时使用兼容旧部署的 `api-data` Docker 命名卷。 |
+| `TZ` | `Asia/Shanghai` | 容器时区，例如 `Asia/Shanghai` 或 `UTC`。 |
+| `ALLOWED_ORIGINS` | `capacitor://localhost,http://localhost,https://localhost` | 额外允许的跨域 Origin，多个值用英文逗号分隔。必须包含协议和域名、不能带路径或尾斜杠、不能使用 `*`。同域 Web 部署会自动放行，通常无需加入公开域名。 |
+| `PHOTO_SYNC_INTERVAL` | `10m` | 本地媒体同步到 OSS/S3 的周期，使用 Go duration 格式，如 `30s`、`10m`、`1h`；无效值会禁用后台同步。 |
+
+Compose 已将数据库固定到 `/app/data/ourMemories.db`、本地媒体固定到 `/app/data/images`。直接运行后端时才需要参考 [backend/.env.example](./backend/.env.example) 配置 `PORT`、`DATABASE_PATH`、`PUBLIC_DIR` 和 `LOCAL_IMAGE_DIR`。
+
+### OSS / S3 对象存储（可选）
+
+不使用对象存储时，以下变量全部留空，图片会保存在 `DATA_DIR/images`。启用时至少完整配置 Endpoint、Region、Access Key、Secret Key 和 Bucket。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `S3_ENDPOINT` | 空 | S3 兼容 API 地址，例如阿里云 OSS 的区域 Endpoint。留空即禁用对象存储。 |
+| `S3_REGION` | `us-east-1` | 存储桶区域，按服务商要求填写。 |
+| `S3_ACCESS_KEY_ID` | 空 | 对象存储 Access Key ID。 |
+| `S3_SECRET_ACCESS_KEY` | 空 | 对象存储 Secret Access Key，仅保存在服务器 `.env`。 |
+| `S3_BUCKET` | `our-memories` | 存储桶名称。 |
+| `S3_PUBLIC_BASE_URL` | 空 | 对象公开访问前缀或 CDN 域名，例如 `https://cdn.example.com`。 |
+| `S3_OBJECT_ACL` | 空 | 上传对象时使用的 ACL；服务商不要求时保持为空。 |
+
+### AI、纪念日与推送（可选）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DEEPSEEK_API_KEY` | 空 | DeepSeek API Key。为空时文字润色直接返回原文，不调用外部服务。 |
+| `DEEPSEEK_API_URL` | DeepSeek 官方兼容地址 | 文字润色接口地址，使用兼容服务时修改。 |
+| `IMAGE_GENERATION_BASE_URL` | 空 | OpenAI 兼容生图接口的 Base URL；为空时不创建环境变量生图节点。 |
+| `IMAGE_GENERATION_API_KEY` | 空 | 生图接口 API Key。 |
+| `IMAGE_GENERATION_MODEL` | `gpt-image-2` | 生图模型名称，必须与所用接口支持的模型一致。 |
+| `DEFAULT_ANNIVERSARY_DATE` | 空 | 尚未在应用中保存纪念日时使用的默认日期，建议格式为 `YYYY-MM-DD`。 |
+| `DEFAULT_ANNIVERSARY_LABEL` | `在一起` | 尚未保存纪念日设置时显示的默认名称。 |
+| `JPUSH_APP_KEY` | 空 | 极光推送 AppKey；必须与 `JPUSH_MASTER_SECRET` 同时配置。 |
+| `JPUSH_MASTER_SECRET` | 空 | 极光推送 Master Secret，只能放在服务端，不能写入 Web 或 Android 客户端。 |
+
+修改 `.env` 后需要重建容器才能应用新变量：
+
+```bash
+docker compose up -d --force-recreate
+docker compose logs --tail=100 api
+```
+
 ## 面板部署
 
 ### 1Panel 私有化部署
