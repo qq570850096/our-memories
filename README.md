@@ -14,15 +14,9 @@
 
 ## 效果展示
 
-> 截图区域已预留。参赛前将下表中的占位文字替换为实际图片即可，建议把图片统一放在 `docs/screenshots/`，避免 README 根目录堆放素材。
-
-| 回忆地图 | 回忆详情 |
-| --- | --- |
-| 待补充：`docs/screenshots/memory-map.png` | 待补充：`docs/screenshots/memory-detail.png` |
-
-| 时光胶囊 | 移动端体验 |
-| --- | --- |
-| 待补充：`docs/screenshots/time-capsule.png` | 待补充：`docs/screenshots/mobile-home.png` |
+| 回忆地图 | 回忆详情 | 纪念日墙 |
+| --- | --- | --- |
+| <img src="docs/screenshots/memory-map.png" alt="回忆地图" width="280"> | <img src="docs/screenshots/memory-detail.png" alt="回忆详情" width="280"> | <img src="docs/screenshots/anniversary-wall.png" alt="纪念日墙" width="280"> |
 
 ## 快速部署
 
